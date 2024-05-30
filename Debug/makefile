@@ -52,7 +52,7 @@ clean:
 
 post-build:
 	-@echo 'Copy To Target'
-	-scp -o HostKeyAlgorithms=ssh-rsa HardwareTest root@192.168.44.247:/home/root
+	-scp -o HostKeyAlgorithms=ssh-rsa HardwareTest root@192.168.45.9:/home/root
 	-@echo ' '
 
 .PHONY: all clean dependents main-build post-build
