@@ -49,8 +49,6 @@ void initKeyboard(void);
 void CloseKeyboard(void);
 void InitCodec(void);
 void CloseCodec(void);
-//void InitSoundDrivers(void);
-//void CloseSoundDrivers(void);
 void SelectHandset(void);
 void SetDACGain(U8 WhichDAC, int GainValue);
 void SetADCGain(U8 WhichADC, int GainValue);

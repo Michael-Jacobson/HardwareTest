@@ -85,8 +85,8 @@ short DeinterlaceRxdBuf[2][PERIOD_LEN*2]; //0 is handset, 1 is Phone line
 short DeinterlaceTxdBuf[2][PERIOD_LEN*2]; //0 is handset, 1 is phone line
 DataPipeS16_t WorkingCaptureBuffer[NUM_OF_CHANNELS];
 DataPipeS16_t WorkingPlaybackBuffer[NUM_OF_CHANNELS];
-int EffectivePeriodSizeRx = PERIOD_LEN;
-int EffectivePeriodSizeTx = PERIOD_LEN;
+snd_pcm_uframes_t  EffectivePeriodSizeRx = PERIOD_LEN;
+snd_pcm_uframes_t  EffectivePeriodSizeTx = PERIOD_LEN;
 
 short RawLiveCallHSSamples[PERIOD_LEN*2];
 short RawLiveCallPOTSSamples[PERIOD_LEN*2];
@@ -129,6 +129,7 @@ void InitSoundDrivers(void)
 		{
 			if(pthread_create( &AudioTxThread, NULL, WriteAudioSamples, NULL ) == 0)
 			{
+				sleep(1);
 				if(pthread_create( &AudioRxThread, NULL, ReadAudioSamples, NULL ) == 0)
 				{
 
@@ -163,9 +164,9 @@ void CloseSoundDrivers(void)
     //close the one that triggers all the rest first
     pthread_join(AudioRxThread, NULL);
 
-    pthread_join(AudioTxThread, NULL);
-
     pthread_join(RxAudioProcessingThread, NULL);
+
+    pthread_join(AudioTxThread, NULL);
 
     pthread_join(TxAudioProcessingThread, NULL);
 
@@ -193,7 +194,7 @@ void *ReadAudioSamples(void *arg)
     int err;
     int rate = 8000; /* Sample rate */
     unsigned int exact_rate; /* Sample rate returned by */
-    int dir;
+    int dir = 0;
     //snd_pcm_uframes_t bufferedframes = BUFFER_FRAME_SIZE;
 	unsigned int BufferTime = AUDIO_LATENCY;
 
@@ -413,7 +414,7 @@ void *WriteAudioSamples(void *arg)
     int err;
     int rate = 8000; /* Sample rate */
     unsigned int exact_rate; /* Sample rate returned by */
-    int dir;
+    int dir = 0;
     /* Playback stream */
     snd_pcm_stream_t stream = SND_PCM_STREAM_PLAYBACK;
     /* This structure contains information about the hardware and can be used to specify the configuration to be used for */
