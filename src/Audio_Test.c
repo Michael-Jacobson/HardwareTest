@@ -43,16 +43,7 @@
 
 #define AUDIO_LATENCY			50000
 
-#define DEFAULT_CIRC_BUF_LEN		1024	//this needs to be a power of 2
 
-typedef struct
-{
-	S16 data[DEFAULT_CIRC_BUF_LEN];
-	U32 head;
-	U32 tail;
-	pthread_mutex_t mutex;
-	BOOL MutexInit;
-} DataPipeS16_t;
 
 pthread_t AudioRxThread = 0;
 pthread_t AudioTxThread = 0;
@@ -120,10 +111,6 @@ void InitSoundDrivers(void)
 		{
 			if(pthread_create( &AudioTxThread, NULL, WriteAudioSamples, NULL ) == 0)
 			{
-				while(TxRunning == FALSE)
-				{
-					usleep(1);
-				}
 				if(pthread_create( &AudioRxThread, NULL, ReadAudioSamples, NULL ) == 0)
 				{
 
@@ -192,6 +179,7 @@ void *ReadAudioSamples(void *arg)
     //snd_pcm_uframes_t bufferedframes = BUFFER_FRAME_SIZE;
 	unsigned int BufferTime = AUDIO_LATENCY;
 	snd_pcm_uframes_t FrameSize = PERIOD_LEN;
+	
     /* This structure contains information about the hardware and can be used to specify the configuration to be used for */
     /* the PCM stream. */
     snd_pcm_hw_params_t *hw_params;
@@ -292,6 +280,18 @@ void *ReadAudioSamples(void *arg)
         exit (1);
     }
 
+    /*
+     * put both here so they start are basically the same time. we need playback to start before
+     * the capture because the ssi renesas patch says it needs to. we also need to start them at the same time
+     * or else the interleaved samples where we assume odd samples are path1, even samples are path2 for both
+     * rx and tx won't be true. it will be random and sometimes it will work out and sometimes it will be
+     * opposite
+     */
+    while(!TxRunning)
+    {
+    	usleep(10);
+    }
+    snd_pcm_start(playback_handle);
     snd_pcm_start(capture_handle);
 
     /***************************************************************************************************************/
@@ -334,7 +334,7 @@ void *ReadAudioSamples(void *arg)
 			else
 			{
 				RxGoodCount++;
-				printf("Captures %d\n", RxGoodCount);
+				//printf("Captures %d\n", RxGoodCount);
 				sem_post(&AudioRxSem);
 			}
         }
@@ -479,8 +479,7 @@ void *WriteAudioSamples(void *arg)
         exit (1);
     }
 
-    snd_pcm_start(playback_handle);
-
+    //don't do PCM start here, it lives in Rx side
     TxRunning = TRUE;
 
     /***************************************************************************************************************/
@@ -567,24 +566,29 @@ void *ProcessRxAudioSamples(void *arg)
 		sem_wait(&AudioRxSem);
 
 		index = 0;
+		avg1 = 0;
+		avg2 = 0;
+
 		//separate out the audio samples, they come interlaced which doesn't help us process the data.
 		for(i = 0; i < (PERIOD_LEN*NUM_OF_CHANNELS); i+=2)
 		{
 			avg1 += Rxbuf[i+1];
 			avg2 += Rxbuf[i];
+
+
 			DeinterlaceRxdBuf[AUDIO_CHANNEL_HANDSET][index] = Rxbuf[i];
 			DeinterlaceRxdBuf[AUDIO_CHANNEL_POTS][index++] = Rxbuf[i+1];
 		}
 
 		AvgRxInputPOTS = avg1/(PERIOD_LEN);
 		AvgRxInputMic = avg2/(PERIOD_LEN);
-		memcpy(RawLiveCallHSSamples, DeinterlaceRxdBuf[AUDIO_CHANNEL_HANDSET], sizeof(PERIOD_LEN*2));
-		memcpy(RawLiveCallPOTSSamples, DeinterlaceRxdBuf[AUDIO_CHANNEL_POTS], sizeof(PERIOD_LEN*2));
+		memcpy(RawLiveCallHSSamples, DeinterlaceRxdBuf[AUDIO_CHANNEL_HANDSET], (PERIOD_LEN*2));
+		memcpy(RawLiveCallPOTSSamples, DeinterlaceRxdBuf[AUDIO_CHANNEL_POTS], (PERIOD_LEN*2));
 
         //if(g_hook_sw_status != ONHOOK)
         {
-        	memcpy(RawLiveCallPOTSTxSamples, RawLiveCallHSSamples, PERIOD_LEN*2);
-        	memcpy(RawLiveCallHSTxSamples, RawLiveCallPOTSSamples, PERIOD_LEN*2);
+        	memcpy(RawLiveCallPOTSTxSamples, RawLiveCallHSSamples, (PERIOD_LEN*2));
+        	memcpy(RawLiveCallHSTxSamples, RawLiveCallPOTSSamples, (PERIOD_LEN*2));
         }
     }
 
@@ -622,9 +626,13 @@ void *ProcessTxAudioSamples(void *arg)
         //Tx Processing here
         //if(g_hook_sw_status != ONHOOK)
         {
-			memcpy(DeinterlaceTxdBuf[AUDIO_CHANNEL_POTS], RawLiveCallPOTSTxSamples, PERIOD_LEN*2);
-			memcpy(DeinterlaceTxdBuf[AUDIO_CHANNEL_HANDSET], RawLiveCallHSTxSamples, PERIOD_LEN*2);
+			memcpy(DeinterlaceTxdBuf[AUDIO_CHANNEL_POTS], RawLiveCallPOTSTxSamples, (PERIOD_LEN*2));
+			memcpy(DeinterlaceTxdBuf[AUDIO_CHANNEL_HANDSET], RawLiveCallHSTxSamples, (PERIOD_LEN*2));
         }
+
+        index = 0;
+        avg1 = 0;
+        avg2 = 0;
 
         //re-interlace the audio samples for the tx system
         for(i = 0; i < (PERIOD_LEN*NUM_OF_CHANNELS); i+=2)
