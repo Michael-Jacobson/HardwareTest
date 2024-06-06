@@ -99,8 +99,13 @@ static BOOL SetCodecMixerSetting(snd_hctl_t *hctl, snd_ctl_elem_id_t *id, snd_ct
  ********************************************************************************************************************************/
 void InitCodec(void)
 {
+#if 0
 	pthread_create( &CodecControlThread, NULL, CodecControl, NULL );
 	sem_init(&CodecControlSem, 0, 0);
+#endif
+	//audio - launches threads
+	printf("Init Sound\n");
+	InitSoundDrivers();
 }
 
 /********************************************************************************************************************************
@@ -117,10 +122,15 @@ void InitCodec(void)
  ********************************************************************************************************************************/
 void CloseCodec(void)
 {
+#if 0
 	CodecControlThread_KeepGoing = FALSE;
 	sem_post(&CodecControlSem);
 	pthread_join(CodecControlThread, NULL);
 	sem_destroy(&CodecControlSem);
+#endif
+
+	printf("Close Sound\n");
+	CloseSoundDrivers();
 }
 
 /********************************************************************************************************************************

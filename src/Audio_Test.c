@@ -27,7 +27,7 @@
 
 #define BUFF_SIZE 4096
 
-#define NUM_OF_CHANNELS     2
+#define NUM_OF_CHANNELS     1
 #define BYTES_PER_CHANNEL   2
 #define BYTES_IN_FRAME      (NUM_OF_CHANNELS*BYTES_PER_CHANNEL)
 #define FRAMES_IN_PERIOD    80
@@ -72,13 +72,9 @@ snd_pcm_t *playback_handle;
 snd_pcm_t *capture_handle;
 short Rxbuf[BUFF_SIZE];
 short Txbuf[BUFF_SIZE];
-short DeinterlaceRxdBuf[2][PERIOD_LEN*2]; //0 is handset, 1 is Phone line
-short DeinterlaceTxdBuf[2][PERIOD_LEN*2]; //0 is handset, 1 is phone line
 
-short RawLiveCallPOTSSamples[PERIOD_LEN*2];
 short RawLiveCallHSSamples[PERIOD_LEN*2];
 
-short RawLiveCallPOTSTxSamples[PERIOD_LEN*2];
 short RawLiveCallHSTxSamples[PERIOD_LEN*2];
 
 BOOL TxRunning = FALSE;
@@ -558,38 +554,25 @@ void *ProcessRxAudioSamples(void *arg)
 {
 	int i;
 	int index = 0;
-	int avg1 = 0;
-	int avg2 = 0;
+	int avg = 0;
 
 	while(RxAudioProcessingThread_KeepGoing)
 	{
 		sem_wait(&AudioRxSem);
 
 		index = 0;
-		avg1 = 0;
-		avg2 = 0;
+		avg = 0;
 
 		//separate out the audio samples, they come interlaced which doesn't help us process the data.
-		for(i = 0; i < (PERIOD_LEN*NUM_OF_CHANNELS); i+=2)
+		for(i = 0; i < (PERIOD_LEN*NUM_OF_CHANNELS); i++)
 		{
-			avg1 += Rxbuf[i+1];
-			avg2 += Rxbuf[i];
-
-
-			DeinterlaceRxdBuf[AUDIO_CHANNEL_HANDSET][index] = Rxbuf[i];
-			DeinterlaceRxdBuf[AUDIO_CHANNEL_POTS][index++] = Rxbuf[i+1];
+			avg += Rxbuf[i];
 		}
 
-		AvgRxInputPOTS = avg1/(PERIOD_LEN);
-		AvgRxInputMic = avg2/(PERIOD_LEN);
-		memcpy(RawLiveCallHSSamples, DeinterlaceRxdBuf[AUDIO_CHANNEL_HANDSET], (PERIOD_LEN*2));
-		memcpy(RawLiveCallPOTSSamples, DeinterlaceRxdBuf[AUDIO_CHANNEL_POTS], (PERIOD_LEN*2));
+		AvgRxInputMic = avg/(PERIOD_LEN);
+		memcpy(RawLiveCallHSSamples, Rxbuf, (PERIOD_LEN*2));
 
-        //if(g_hook_sw_status != ONHOOK)
-        {
-        	memcpy(RawLiveCallPOTSTxSamples, RawLiveCallHSSamples, (PERIOD_LEN*2));
-        	memcpy(RawLiveCallHSTxSamples, RawLiveCallPOTSSamples, (PERIOD_LEN*2));
-        }
+        memcpy(RawLiveCallHSTxSamples, RawLiveCallHSSamples, (PERIOD_LEN*2));
     }
 
 
@@ -612,39 +595,26 @@ void *ProcessTxAudioSamples(void *arg)
 {
 	int i;
 	int index = 0;
-	int avg1 = 0;
-	int avg2 = 0;
+	int avg = 0;
 
 	while(TxAudioProcessingThread_KeepGoing)
 	{
 		sem_wait(&AudioTxSem);
 
-        //blank output by default
-        memset(DeinterlaceTxdBuf, 0, sizeof(DeinterlaceTxdBuf));
-
         ////////////////////
         //Tx Processing here
-        //if(g_hook_sw_status != ONHOOK)
-        {
-			memcpy(DeinterlaceTxdBuf[AUDIO_CHANNEL_POTS], RawLiveCallPOTSTxSamples, (PERIOD_LEN*2));
-			memcpy(DeinterlaceTxdBuf[AUDIO_CHANNEL_HANDSET], RawLiveCallHSTxSamples, (PERIOD_LEN*2));
-        }
+        memcpy(Txbuf, RawLiveCallHSTxSamples, (PERIOD_LEN*2));
 
         index = 0;
-        avg1 = 0;
-        avg2 = 0;
+        avg = 0;
 
         //re-interlace the audio samples for the tx system
-        for(i = 0; i < (PERIOD_LEN*NUM_OF_CHANNELS); i+=2)
+        for(i = 0; i < (PERIOD_LEN*NUM_OF_CHANNELS); i++)
         {
-            Txbuf[i] = DeinterlaceTxdBuf[AUDIO_CHANNEL_HANDSET][index];
-            Txbuf[i+1] = DeinterlaceTxdBuf[AUDIO_CHANNEL_POTS][index++];
-			avg1 += Txbuf[i+1];
-			avg2 += Txbuf[i];
+			avg += Txbuf[i];
         }
 
-		AvgTxOutputPOTS = avg1/(PERIOD_LEN);
-		AvgTxOutputHS = avg2/(PERIOD_LEN);
+		AvgTxOutputHS = avg/(PERIOD_LEN);
     }
 
 
