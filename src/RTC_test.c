@@ -15,6 +15,8 @@
 #include <errno.h>
 #include <pthread.h>
 #include <string.h>
+#include <time.h>
+#include <stdint.h>
 
 //extern char g_outString[100];
 
@@ -32,7 +34,7 @@ void *RTC_Seconds_Thread(void *arg);
  * clocks that will often not be clones of what the PC-AT had.
  * Use the command line to specify another RTC if you need one.
  */
-static const char *default_rtc = "/dev/rtc0";
+//static const char *default_rtc = "/dev/rtc0";
 
 /*************************************************************************
  *
@@ -40,9 +42,9 @@ static const char *default_rtc = "/dev/rtc0";
 void InitRTC(void)
 {
     RTC_KeepGoing = 1;
-    rtc_fd = open(default_rtc, O_RDWR);
+    //rtc_fd = open(default_rtc, O_RDWR);
 
-    if(rtc_fd)
+    //if(rtc_fd)
     {
     	pthread_create( &RTCThread, NULL, RTC_Seconds_Thread, NULL );
     }
@@ -55,7 +57,7 @@ void CloseRTC(void)
 {
     if(RTCThread != 0)
     {
-        /*int retval = */ioctl(rtc_fd, RTC_UIE_OFF, 0);
+        /*int retval = *///ioctl(rtc_fd, RTC_UIE_OFF, 0);
         RTC_KeepGoing = 0;
         pthread_join(RTCThread, NULL);
         close(rtc_fd);
@@ -67,7 +69,9 @@ void CloseRTC(void)
  */
 int SetRealTime(void)
 {
-    int retVal = 0;
+	int retVal = 0;
+
+#if 0
     int val = 0;
     struct rtc_time rtc_temp;
 
@@ -87,7 +91,9 @@ int SetRealTime(void)
     {
        perror("RTC_RD_TIME ioctl");
     }
-
+#else
+    //shit shit
+#endif
 
     return retVal;
 }
@@ -99,6 +105,7 @@ int SetRealTime(void)
  */
 void *RTC_Seconds_Thread(void *arg)
 {
+#if 0
     fd_set read_fds, write_fds, except_fds;
     struct timeval rtc_timeout;
     int retVal = 0;
@@ -187,6 +194,64 @@ void *RTC_Seconds_Thread(void *arg)
             }
         }
     }
+#else
+    char *DaysOfWeek[] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", 0};
+    char *Months[] = {"January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December", 0};
+    char *ampm[] = {"am", "pm", 0};
+    int timeout = 0;
 
+    while(RTC_KeepGoing)
+    {
+    	time_t result = time(NULL);
+    	struct tm *p_timeResult = localtime(&result);
+
+    	if(result != (time_t)(-1))
+    	{
+    		int hour = 0;
+    		int ampmselect = 0;
+
+    		if(p_timeResult->tm_hour >= 12)
+    		{
+    			ampmselect = 1;
+
+    			if(p_timeResult->tm_hour > 12)
+    			{
+    				hour = p_timeResult->tm_hour - 12;
+    			}
+    		}
+    		else if(p_timeResult->tm_hour == 0)
+    		{
+    			hour = 12;
+    		}
+    		else
+    		{
+    			hour = p_timeResult->tm_hour;
+    		}
+
+    	    printf("The current time is %s\n",
+    	               asctime(gmtime(&result)));
+    		printf("Extracted time: %d:%d%s %s %s %d %d\n",
+    				hour,
+					p_timeResult->tm_min,
+					ampm[ampmselect],
+					DaysOfWeek[p_timeResult->tm_wday],
+					Months[p_timeResult->tm_mon],
+					p_timeResult->tm_mday,
+					(p_timeResult->tm_year+1900));
+
+
+
+    	}
+
+    	timeout = 0;
+
+    	while((timeout < 60) && (RTC_KeepGoing))
+    	{
+    		sleep(1);
+    		timeout++;
+    	}
+    }
+
+#endif
     return 0;
 }
