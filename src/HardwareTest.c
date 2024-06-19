@@ -80,8 +80,8 @@ int main(void)
 	GoOnhook(); //default to onhook
 	//printf("Init Keyboard\n");
 	//initKeyboard();
-	//printf("Init RTC\n");
-	//InitRTC();
+	printf("Init RTC\n");
+	InitRTC();
 	//sleep(1);
 	printf("Init Codec\n");
 	InitCodec();
