@@ -36,14 +36,15 @@ char g_outString[100];
 
 char collectString = 1;
 
+extern int POTS_Sample_Index;
+extern int HS_Sample_Index;
+
 extern int RxGoodCount;
 extern int RxBadCount;
 extern int TxGoodCount;
 extern int TxBadCount;
-extern int AvgTxOutputPOTS;
-extern int AvgTxOutputHS;
-extern int AvgRxInputPOTS;
-extern int AvgRxInputMic;
+extern int AveragesTX[2];
+extern int AveragesRX[2];
 
 void initKeyboard(void);
 void CloseKeyboard(void);
@@ -166,8 +167,9 @@ int main(void)
 				}
 				else if(strstr(RxString, "averages") != 0)
 				{
-					printf("**Average POTS Tx:%d\n**Average Handset Tx:%d\n**Average POTS Rx:%d\n**Average Handset Rx:%d\n",
-							AvgTxOutputPOTS, AvgTxOutputHS, AvgRxInputPOTS, AvgRxInputMic);
+					printf("**Average POTS Tx:%d\n**Average Handset Tx:%d\n\n**Average POTS Rx:%d\n**Average Handset Rx:%d\n",
+							AveragesTX[PHONELINE], AveragesTX[HANDSET],
+							AveragesRX[POTS_Sample_Index], AveragesRX[HS_Sample_Index]);
 				}
 				else if(strstr(RxString, "quit") != 0)
 				{

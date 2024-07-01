@@ -24,6 +24,7 @@
 #include <sys/time.h>
 #include "C674xTypes.h"
 #include "Ultratec_Enums.h"
+#include "Codec.h"
 
 #define BUFF_SIZE 4096
 
@@ -37,9 +38,6 @@
 #define PCM_WAIT_TIME		(10*NUM_PERIODS+2)
 
 #define BUFFER_FRAME_SIZE	80
-
-#define AUDIO_CHANNEL_HANDSET   0
-#define AUDIO_CHANNEL_POTS      1
 
 #define AUDIO_LATENCY			50000
 
@@ -62,10 +60,9 @@ int RxGoodCount = 0;
 int RxBadCount = 0;
 int TxGoodCount = 0;
 int TxBadCount = 0;
-int AvgTxOutputPOTS = 0;
-int AvgTxOutputHS = 0;
-int AvgRxInputPOTS = 0;
-int AvgRxInputMic = 0;
+
+int AveragesTX[2] = {0, 0};
+int AveragesRX[2] = {0, 0};
 
 /* Handle for the PCM device */
 snd_pcm_t *playback_handle;
@@ -82,6 +79,9 @@ short RawLiveCallPOTSTxSamples[PERIOD_LEN*2];
 short RawLiveCallHSTxSamples[PERIOD_LEN*2];
 
 BOOL TxRunning = FALSE;
+
+int POTS_Sample_Index = PHONELINE;
+int HS_Sample_Index = HANDSET;
 
 static void *ReadAudioSamples(void *arg);
 static void *WriteAudioSamples(void *arg);
@@ -561,6 +561,7 @@ void *ProcessRxAudioSamples(void *arg)
 	int index = 0;
 	int avg1 = 0;
 	int avg2 = 0;
+	int RunOnce = 0;
 
 	while(RxAudioProcessingThread_KeepGoing)
 	{
@@ -577,14 +578,36 @@ void *ProcessRxAudioSamples(void *arg)
 			avg2 += Rxbuf[i];
 
 
-			DeinterlaceRxdBuf[AUDIO_CHANNEL_HANDSET][index] = Rxbuf[i];
-			DeinterlaceRxdBuf[AUDIO_CHANNEL_POTS][index++] = Rxbuf[i+1];
+			DeinterlaceRxdBuf[0][index] = Rxbuf[i];
+			DeinterlaceRxdBuf[1][index++] = Rxbuf[i+1];
 		}
 
-		AvgRxInputPOTS = avg1/(PERIOD_LEN);
-		AvgRxInputMic = avg2/(PERIOD_LEN);
-		memcpy(RawLiveCallHSSamples, DeinterlaceRxdBuf[AUDIO_CHANNEL_HANDSET], (PERIOD_LEN*2));
-		memcpy(RawLiveCallPOTSSamples, DeinterlaceRxdBuf[AUDIO_CHANNEL_POTS], (PERIOD_LEN*2));
+		AveragesRX[1] = avg1/(PERIOD_LEN);
+		AveragesRX[0] = avg2/(PERIOD_LEN);
+
+		if(RunOnce <= 10)
+		{
+			RunOnce++;
+			/*
+			 * the samples for POTS should have an average because the HS is muted at boot.
+			 * the drivers did a bad job synchronizing the samples to the channels. sometimes
+			 * the samples start with POTS, sometimes it starts with Handset. there is no way
+			 * to know which is which. so we have to play this averages game to figure it out
+			 */
+			if((AveragesRX[POTS_Sample_Index] == 0) && (AveragesRX[HS_Sample_Index] != 0))
+			{
+				printf("Switching Inputs on #%d!\n", RunOnce);
+				POTS_Sample_Index = HANDSET;
+				HS_Sample_Index = PHONELINE;
+				RunOnce = 11;
+			}
+		}
+		else
+		{
+			RunOnce++;
+		}
+		memcpy(RawLiveCallHSSamples, DeinterlaceRxdBuf[HS_Sample_Index], (PERIOD_LEN*2));
+		memcpy(RawLiveCallPOTSSamples, DeinterlaceRxdBuf[POTS_Sample_Index], (PERIOD_LEN*2));
 
         //if(g_hook_sw_status != ONHOOK)
         {
@@ -627,8 +650,8 @@ void *ProcessTxAudioSamples(void *arg)
         //Tx Processing here
         //if(g_hook_sw_status != ONHOOK)
         {
-			memcpy(DeinterlaceTxdBuf[AUDIO_CHANNEL_POTS], RawLiveCallPOTSTxSamples, (PERIOD_LEN*2));
-			memcpy(DeinterlaceTxdBuf[AUDIO_CHANNEL_HANDSET], RawLiveCallHSTxSamples, (PERIOD_LEN*2));
+			memcpy(DeinterlaceTxdBuf[PHONELINE], RawLiveCallPOTSTxSamples, (PERIOD_LEN*2));
+			memcpy(DeinterlaceTxdBuf[HANDSET], RawLiveCallHSTxSamples, (PERIOD_LEN*2));
         }
 
         index = 0;
@@ -638,14 +661,14 @@ void *ProcessTxAudioSamples(void *arg)
         //re-interlace the audio samples for the tx system
         for(i = 0; i < (PERIOD_LEN*NUM_OF_CHANNELS); i+=2)
         {
-            Txbuf[i] = DeinterlaceTxdBuf[AUDIO_CHANNEL_HANDSET][index];
-            Txbuf[i+1] = DeinterlaceTxdBuf[AUDIO_CHANNEL_POTS][index++];
+            Txbuf[i] = DeinterlaceTxdBuf[HANDSET][index];
+            Txbuf[i+1] = DeinterlaceTxdBuf[PHONELINE][index++];
 			avg1 += Txbuf[i+1];
 			avg2 += Txbuf[i];
         }
 
-		AvgTxOutputPOTS = avg1/(PERIOD_LEN);
-		AvgTxOutputHS = avg2/(PERIOD_LEN);
+        AveragesTX[PHONELINE] = avg1/(PERIOD_LEN);
+        AveragesTX[HANDSET] = avg2/(PERIOD_LEN);
     }
 
 
