@@ -277,7 +277,7 @@ void *ReadAudioSamples(void *arg)
     }
 
     /*
-     * put both here so they start are basically the same time. we need playback to start before
+     * we need playback to start before
      * the capture because the ssi renesas patch says it needs to. we also need to start them at the same time
      * or else the interleaved samples where we assume odd samples are path1, even samples are path2 for both
      * rx and tx won't be true. it will be random and sometimes it will work out and sometimes it will be
@@ -285,9 +285,9 @@ void *ReadAudioSamples(void *arg)
      */
     while(!TxRunning)
     {
-    	usleep(10);
+    	usleep(1);
     }
-    snd_pcm_start(playback_handle);
+
     snd_pcm_start(capture_handle);
 
     /***************************************************************************************************************/
@@ -475,8 +475,7 @@ void *WriteAudioSamples(void *arg)
         exit (1);
     }
 
-    //don't do PCM start here, it lives in Rx side
-    TxRunning = TRUE;
+    snd_pcm_start(playback_handle);
 
     /***************************************************************************************************************/
     /***************************************************************************************************************/
@@ -519,6 +518,7 @@ void *WriteAudioSamples(void *arg)
 			{
 				if(TxAudioProcessingThread != 0)
 				{
+					TxRunning = TRUE;
 					TxGoodCount++;
 					sem_post(&AudioTxSem);
 				}
@@ -530,6 +530,7 @@ void *WriteAudioSamples(void *arg)
         }
     }
 
+    TxRunning = FALSE;
     //snd_pcm_drain(playback_handle);
 	snd_pcm_hw_params_free (hw_params);
 	snd_pcm_close (playback_handle);
