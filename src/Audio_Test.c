@@ -26,6 +26,15 @@
 #include "Ultratec_Enums.h"
 #include "Codec.h"
 
+#include "aes/include/aes_adt_user.h"
+#include "G729AB/include/g729ab_user.h"
+#include "agc/include/agc_user.h"
+#include "NR2/include/nradt_user.h"
+#include "g168/include/g168_user.h"
+#include "vadcng/include/vadcng_user.h"
+#include "aecg4/include/iaecg4.h"
+#include "aes/include/aes_adt_user.h"
+
 #define BUFF_SIZE 4096
 
 #define NUM_OF_CHANNELS     2
@@ -41,6 +50,13 @@
 
 #define AUDIO_LATENCY			50000
 
+#define COMPRESS_LEN        10
+
+#define EP_LENGTH           (MAX_TAP_LENGTH+MAX_FRAME_SIZE+1)
+
+#define FRAME_LENGTH		PERIOD_LEN
+
+#define KEYLENGTH           256 /* 128, 192 or 256 */
 
 
 pthread_t AudioRxThread = 0;
@@ -69,19 +85,27 @@ snd_pcm_t *playback_handle;
 snd_pcm_t *capture_handle;
 short Rxbuf[BUFF_SIZE];
 short Txbuf[BUFF_SIZE];
-short DeinterlaceRxdBuf[2][PERIOD_LEN*2]; //0 is handset, 1 is Phone line
-short DeinterlaceTxdBuf[2][PERIOD_LEN*2]; //0 is handset, 1 is phone line
+short DeinterlaceRxdBuf[2][PERIOD_LEN]; //0 is handset, 1 is Phone line
+short DeinterlaceTxdBuf[2][PERIOD_LEN]; //0 is handset, 1 is phone line
 
-short RawLiveCallPOTSSamples[PERIOD_LEN*2];
-short RawLiveCallHSSamples[PERIOD_LEN*2];
+short RawLiveCallPOTSSamples[PERIOD_LEN];
+short RawLiveCallHSSamples[PERIOD_LEN];
 
-short RawLiveCallPOTSTxSamples[PERIOD_LEN*2];
-short RawLiveCallHSTxSamples[PERIOD_LEN*2];
+short RawLiveCallPOTSTxSamples[PERIOD_LEN];
+short RawLiveCallHSTxSamples[PERIOD_LEN];
 
 BOOL TxRunning = FALSE;
 
 int POTS_Sample_Index = PHONELINE;
 int HS_Sample_Index = HANDSET;
+
+int AGC_En = 0;
+int NR_En = 0;
+int VAD_En = 0;
+int AES_En = 0;
+int G729_En = 0;
+int G168_En = 0;
+int AEC_En = 0;
 
 static void *ReadAudioSamples(void *arg);
 static void *WriteAudioSamples(void *arg);
@@ -563,6 +587,219 @@ void *ProcessRxAudioSamples(void *arg)
 	int avg2 = 0;
 	int RunOnce = 0;
 
+	/***********************************************************************************************
+	 ***********************************************************************************************
+	 *      Noise reduction init
+	 ***********************************************************************************************
+	 ***********************************************************************************************/
+	NRADT_Scratch_t Scratch; //declare scratch space
+	NRADT_Channel_t NR_Channel; //declare a single instance
+	printf("Initializing NR\n");
+	NR_ADT_init(&NR_Channel, &Scratch);
+
+	/***********************************************************************************************
+	 ***********************************************************************************************
+	 *      LEC G168 init
+	 ***********************************************************************************************
+	 ***********************************************************************************************/
+	MIPSConserve_t MIPSConserve = {0,0};
+	G168ChannelInst_t G168LECChannel;
+	ADT_Int16 LECEchoPath[EP_LENGTH];
+	ADT_Int16 LECBGEchoPath[MAX_TAP_LENGTH_D+1+MAX_FRAME_SIZE];
+	G168_DA_State_t G168LEC_DA_State;
+	G168_SA_State_t G168LEC_SA_State;
+	G168_Scratch_t G168LEC_Scratch;
+	G168_DAScratch_t G168LEC_DAScratch;
+	G168ParamsV11_t ADT_LEC_Params =
+	{
+	  ADT_EC_API_VERSION,           /* API Version */
+	  sizeof(G168LECChannel),
+	  sizeof(LECEchoPath),
+	  sizeof(G168LEC_DA_State),
+	  sizeof(G168LEC_SA_State),
+	  sizeof(G168LEC_Scratch),
+	  sizeof(LECBGEchoPath),
+	  sizeof(G168LEC_DAScratch),
+	  MAX_FRAME_SIZE,                /* 10mS(80 samples) Framesize */
+	  MAX_TAP_LENGTH,               /* XXmS tail length */
+	  NLP_HOTH_CNG,                 /* NLP ON, CNG ON */
+	  1,                            /* Enable adaptation */
+	  0,                            /* LEC bypass OFF */
+	  0,                            /* Disable G165 Tone Detector (we really don't want this ON) */
+	  6,                            /* Double talk threshold */
+	  40,                            /* Max doubletalk value, varies from default for startup bleedthru reasons */
+	  0,                            /* Saturation Level */
+	  DYNAMIC_NLP_DISABLE,
+	  36,                           /* NLP threshold */
+	  24,                           /* NLP Upper Limit Conv threshold */
+	  0,                            /* NLP Upper Limit Unconv threshold, varies from default for startup bleedthru reasons  */
+	  6,                            /* NLP saturation threshold */
+	  10,                           /* NLP Max Suppress */
+	  43,                           /* CNG noise threshold */
+	  MAX_FRAME_SIZE/2,              /* Adaptlimit */
+	  ((MAX_FRAME_SIZE/7)+1),        /* CrossCorrLimit */
+	  80,                           /* FIRTapCheckPeriod */
+	  MAX_FIR_SEGMENTS,             /* NFIRSegments */
+	  MAX_FIR_SEGMENT_LENGTH,       /* FIRSegmentLength */
+	  0,                            /* TandemOperationEnable */
+	  0,                            /* MixedFourWireMode */
+	  2,                            /* Reconvergence check enable */
+	  &MIPSConserve,                /* MIPS conservation level */
+	  0,                            /* Channel number */
+	  0,                            /* Smart Packet Mode Select (disable)*/
+	  40,                           /* (disabled)Smart Packet Bypass ERL threshold dB */
+	  30,                           /* (disabled)Smart Packet Suppress ERL threshold dB */
+	  24                            /* (disabled)Smart Packet NLP threshold dB */
+	};
+	short LEC_Near_buf[MAX_FRAME_SIZE];
+	short LEC_Far_buf[MAX_FRAME_SIZE];
+	printf("Initializing G168\n");
+	/* Initialize ADT's G168 LEC for the 2Line LEC channel */
+	LEC_ADT_g168Init((G168ChannelInst_t *)&G168LECChannel, &ADT_LEC_Params, (ADT_Int16 *)LECEchoPath, (G168_DA_State_t *)&G168LEC_DA_State, (G168_SA_State_t *)&G168LEC_SA_State,
+							  (G168_Scratch_t *)&G168LEC_Scratch, (ADT_Int16 *)LECBGEchoPath, (G168_DAScratch_t *)&G168LEC_DAScratch);
+
+
+	/***********************************************************************************************
+	 ***********************************************************************************************
+	 *      G729 init
+	 ***********************************************************************************************
+	 ***********************************************************************************************/
+	G729ENC_ADT_Instance_t EncState;
+	G729ENC_ADT_Scratch_t EncScratch;
+	short TxVADFlag;
+	U8 G729DataOut[COMPRESS_LEN];
+
+	printf("Initializing G729 Encode\n");
+	G729AB_ADT_EncodeInit((G729ENC_ADT_Instance_t *)&EncState,  (G729ENC_ADT_Scratch_t *)&EncScratch);
+
+	G729DEC_ADT_Instance_t AMPlayDecState;
+	G729DEC_ADT_Scratch_t AMPlayDECG729Scratch;
+
+	printf("Initializing G729 Decode\n");
+	G729AB_ADT_DecodeInit((G729DEC_ADT_Instance_t *)&AMPlayDecState,    (G729DEC_ADT_Scratch_t *)&AMPlayDECG729Scratch);
+
+	/***********************************************************************************************
+	 ***********************************************************************************************
+	 *      AGC init
+	 ***********************************************************************************************
+	 ***********************************************************************************************/
+	AGCInstance_t SpkrAGCInstance;
+	AGCParamV3_00_t SpkrAGCParams = {
+		  AGC_API_VER,
+		  sizeof(AGCInstance_t),
+		 -10,         /* targetPowerIn */
+		 -8,
+		-23,          /* maxLossLimitIn */
+		  9,       /* maxGainLimitIn */
+		-40,       /* lowSigThreshDBM */
+		  2,          /* StickyControl */
+		  0,          /* StickyInitialGain */
+		  FS_8000     /* SamplingRate */
+	   };
+	S16 CAAudio[PERIOD_LEN];
+	U8 agcreturn = 0;
+
+	printf("Initializing AGC\n");
+	agcreturn = AGC_ADT_agcInit((AGCInstance_t *)&SpkrAGCInstance, &SpkrAGCParams);
+	if(agcreturn != AGC_INIT_OK)
+	{
+		printf("speaker AGC not happy!\n");
+	}
+
+	/***********************************************************************************************
+	 ***********************************************************************************************
+	 *      AES init
+	 ***********************************************************************************************
+	 ***********************************************************************************************/
+	static unsigned char AesKey[] = {0x8F, 0xF2, 0x67, 0x9E, 0xE4, 0x44, 0xC2, 0xDC, 0x7E, 0xB4, 0xEE, 0x1F, 0xA0, 0xD1, 0x51, 0x07,
+	                                       0xF7, 0xDF, 0x30, 0x94, 0x15, 0x7A, 0xC4, 0xE8, 0x20, 0x7B, 0x91, 0x4F, 0xCC, 0x20, 0xF3, 0x7C};
+
+	static AES_ADT_ChanInst_t ChannelEncrypt;
+	static AES_ADT_ChanInst_t ChannelDecrypt;
+
+	U8 EncryptedData[FRAME_LENGTH*2];
+
+	printf("Initializing AES\n");
+	AES_ADT_KeyInit((ADT_UInt8*) AesKey, KEYLENGTH, (AES_ADT_ChanInst_t*) &ChannelEncrypt);
+	AES_ADT_KeyInit((ADT_UInt8*) AesKey, KEYLENGTH, (AES_ADT_ChanInst_t*) &ChannelDecrypt);
+
+	/***********************************************************************************************
+	 ***********************************************************************************************
+	 *      VAD init
+	 ***********************************************************************************************
+	 ***********************************************************************************************/
+	VADCNG_Instance_t VADChan;
+	ADT_Int16 VADStatus;
+	ADT_Int16 VADLevel;
+
+	printf("Initializing VAD\n");
+	VADCNG_ADT_init((VADCNG_Instance_t *)&VADChan, -45, 100, FRAME_LENGTH, FRAME_LENGTH, 5, 8000, 32);
+
+	/***********************************************************************************************
+	 ***********************************************************************************************
+	 *      AEC init
+	 ***********************************************************************************************
+	 ***********************************************************************************************/
+	IAECG4_Handle hAEC = NULL;
+	ADT_Int16 aec_RxOut_ping_pong_buf[MAX_FRAME_SIZE];
+	//ADT_Int16 aec_TxOut_ping_pong_buf[2][MAX_FRAME_SIZE];
+	IAECG4_Params MYAECG4_PARAMS = {
+	   // Base Parameters
+	   sizeof(IAECG4_Params),
+	   0, // lockCallback
+	   MAX_FRAME_SIZE, // frameSize (samples)
+	   1, // antiHowlEnable
+	   FS_8000, // samplingRate
+	   FS_8000/2, // maxAudioFreq
+	   3*10, // fixedBulkDelayMSec
+	   0, // reserved
+	   0, // reserved
+	   128, // activeTailLengthMSec
+	   128, // totalTailLengthMSec
+	   -15, // txNLPAggressiveness
+	   30, // MaxTxLossSTdB
+	   3, // MaxTxLossDTdB
+	   3, // MaxRxLossdB;
+	   0, // initialRxOutAttendB
+	   -85, // targetResidualLeveldBm;
+	   -90, // maxRxNoiseLeveldBm;
+	   -12, // worstExpectedERLdB
+	   3, // rxSaturateLeveldBm
+	   0, // noiseReduction1Setting
+	   0, // noiseReduction2Setting
+	   1, // cngEnable
+	   0, // fixedGaindB
+	   // txAGC Parameters
+	   0, // ADT_Int8 txAGCEnable;
+	   10, // ADT_Int8 txAGCMaxGaindB;
+	   0, //ADT_Int8 txAGCMaxLossdB;
+	   -10, // ADT_Int8 txAGCTargetLeveldBm;
+	   -50, //ADT_Int8 txAGCLowSigThreshdBm;
+	   // rxAGC Parameters
+	   0, // ADT_Int8 rxAGCEnable;
+	   18, //rxAGCMaxGaindB;
+	   0, //rxAGCMaxLossdB;
+	   -2, //rxAGCTargetLeveldBm;
+	   -33, //rxAGCLowSigThreshdBm;
+	   0, //rxBypassEnable
+	   0, //maxTrainingTimeMSec
+	   -40, //trainingRxNoiseLeveldBm
+	   0, //ADT_Int16 pTxEqualizer
+	   0, //mipsMemReductionSetting
+	   0, //mipsReductionSetting2
+	   0 //reserved
+	};
+
+	printf("Initializing AEC\n");
+	if(hAEC == NULL)
+	{
+		hAEC = AECG4_ADT_create(0, &MYAECG4_PARAMS);
+	}
+	else
+	{
+		AECG4_ADT_reset(hAEC, &MYAECG4_PARAMS);
+	}
+
 	while(RxAudioProcessingThread_KeepGoing)
 	{
 		sem_wait(&AudioRxSem);
@@ -606,8 +843,98 @@ void *ProcessRxAudioSamples(void *arg)
 		{
 			RunOnce++;
 		}
+
 		memcpy(RawLiveCallHSSamples, DeinterlaceRxdBuf[HS_Sample_Index], (PERIOD_LEN*2));
 		memcpy(RawLiveCallPOTSSamples, DeinterlaceRxdBuf[POTS_Sample_Index], (PERIOD_LEN*2));
+
+		//AGC
+		if(AGC_En)
+		{
+			AGC_ADT_agcRun((AGCInstance_t *)&SpkrAGCInstance, (ADT_Int16 *)RawLiveCallPOTSSamples, FRAME_LENGTH, FALSE, 0, (ADT_Int16 *)CAAudio, 0);
+			memcpy(RawLiveCallPOTSSamples, CAAudio, sizeof(RawLiveCallPOTSSamples));
+		}
+
+
+		//NR
+		if(NR_En)
+		{
+			NR_ADT_reduce(&NR_Channel, RawLiveCallPOTSSamples, RawLiveCallPOTSSamples, FRAME_LENGTH);
+		}
+
+
+		//VAD
+		if(VAD_En)
+		{
+			VADStatus = VADCNG_ADT_vad((VADCNG_Instance_t *)&VADChan, (ADT_Int16 *)RawLiveCallPOTSSamples, &VADLevel);
+
+			if( VADStatus != SILENCE )
+			{
+				printf("Talking!\n");
+			}
+		}
+
+
+		//AES
+		if(AES_En)
+		{
+			U8 i;
+			U8 *p_Dst = NULL;
+			U8 *p_Src = NULL;
+
+			memset(EncryptedData, 0, sizeof(EncryptedData));
+			p_Dst = EncryptedData;
+			p_Src = (U8 *)RawLiveCallPOTSSamples;
+
+			for (i = 0; i < (FRAMES_IN_PERIOD*BYTES_PER_CHANNEL); i += 16)
+			{
+				AES_ADT_Encrypt(&p_Src[i], &p_Dst[i], (AES_ADT_ChanInst_t*) &ChannelEncrypt);
+			}
+
+			p_Src = EncryptedData;
+			p_Dst = (U8 *)RawLiveCallPOTSSamples;
+
+			for (i = 0; i < (FRAMES_IN_PERIOD*BYTES_PER_CHANNEL); i += 16)
+			{
+				AES_ADT_Decrypt(&p_Src[i], &p_Dst[i], (AES_ADT_ChanInst_t*) &ChannelDecrypt);
+			}
+		}
+
+
+		//G729
+		if(G729_En)
+		{
+			G729AB_ADT_Encode(&EncState, RawLiveCallPOTSSamples, (char *)G729DataOut, 0, &TxVADFlag);
+
+			G729AB_ADT_Decode((G729DEC_ADT_Instance_t *)&AMPlayDecState, (char *)G729DataOut, RawLiveCallPOTSSamples, 0, 1);
+		}
+
+
+		//G168
+		if(G168_En)
+		{
+			memcpy(LEC_Near_buf, RawLiveCallPOTSSamples, PERIOD_LEN);
+
+			memcpy(LEC_Far_buf, RawLiveCallHSSamples, PERIOD_LEN);
+
+			LEC_ADT_g168echoCancel((G168ChannelInst_t *)&G168LECChannel, (ADT_Int16 *)LEC_Near_buf, (ADT_Int16 *)LEC_Far_buf);
+			LEC_ADT_g168postCancel((G168ChannelInst_t *)&G168LECChannel, (ADT_Int16 *)LEC_Near_buf, (ADT_Int16 *)LEC_Far_buf);
+
+			memcpy((void *)RawLiveCallPOTSSamples, (void *)LEC_Near_buf, PERIOD_LEN);
+		}
+
+
+		//AEC
+		if(AEC_En)
+		{
+			short PostAEC_handset_adc_samples[PERIOD_LEN];
+
+			memset(PostAEC_handset_adc_samples, 0, sizeof(PostAEC_handset_adc_samples));
+
+			AECG4_ADT_apply(hAEC, (ADT_Int16 *)RawLiveCallHSTxSamples, (ADT_Int16 *)aec_RxOut_ping_pong_buf,
+			                                            RawLiveCallHSSamples, PostAEC_handset_adc_samples);
+
+			memcpy(RawLiveCallHSTxSamples, aec_RxOut_ping_pong_buf, sizeof(RawLiveCallHSTxSamples));
+		}
 
         //if(g_hook_sw_status != ONHOOK)
         {
@@ -615,6 +942,8 @@ void *ProcessRxAudioSamples(void *arg)
         	memcpy(RawLiveCallHSTxSamples, RawLiveCallPOTSSamples, (PERIOD_LEN*2));
         }
     }
+
+	AECG4_ADT_delete(hAEC);
 
 
     return 0;

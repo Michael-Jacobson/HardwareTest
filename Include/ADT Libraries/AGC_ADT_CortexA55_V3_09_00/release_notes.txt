@@ -1,0 +1,14 @@
+/* Adaptive Digital Technologies, Inc */
+/* support@adaptivedigital.com        */
+/* January 31, 2024                   */
+
+1. AGC ARM Cortex A55 Version V3_09_00
+
+Toolchain: aarch64 Poky 3.1.26 
+
+1.1 The library is placed under agc\lib
+
+1.2 The C API users guide is placed under agc\doc
+
+1.3 The C header file is placed under agc\include
+

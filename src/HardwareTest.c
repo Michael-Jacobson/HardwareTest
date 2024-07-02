@@ -46,6 +46,14 @@ extern int TxBadCount;
 extern int AveragesTX[2];
 extern int AveragesRX[2];
 
+extern int AGC_En;
+extern int NR_En;
+extern int VAD_En;
+extern int AES_En;
+extern int G729_En;
+extern int G168_En;
+extern int AEC_En;
+
 void initKeyboard(void);
 void CloseKeyboard(void);
 void InitCodec(void);
@@ -170,6 +178,76 @@ int main(void)
 					printf("**Average POTS Tx:%d\n**Average Handset Tx:%d\n\n**Average POTS Rx:%d\n**Average Handset Rx:%d\n",
 							AveragesTX[PHONELINE], AveragesTX[HANDSET],
 							AveragesRX[POTS_Sample_Index], AveragesRX[HS_Sample_Index]);
+				}
+				else if(strstr(RxString, "AGC On") != 0)
+				{
+					printf("**AGC On\n");
+					AGC_En = 1;
+				}
+				else if(strstr(RxString, "AGC Off") != 0)
+				{
+					printf("**AGC Off\n");
+					AGC_En = 0;
+				}
+				else if(strstr(RxString, "NR On") != 0)
+				{
+					printf("**NR On\n");
+					NR_En = 1;
+				}
+				else if(strstr(RxString, "NR Off") != 0)
+				{
+					printf("**NR Off\n");
+					NR_En = 0;
+				}
+				else if(strstr(RxString, "VAD On") != 0)
+				{
+					printf("**VAD On\n");
+					VAD_En = 1;
+				}
+				else if(strstr(RxString, "VAD Off") != 0)
+				{
+					printf("**VAD Off\n");
+					VAD_En = 0;
+				}
+				else if(strstr(RxString, "AES On") != 0)
+				{
+					printf("**AES On\n");
+					AES_En = 1;
+				}
+				else if(strstr(RxString, "AES Off") != 0)
+				{
+					printf("**AES Off\n");
+					AES_En = 0;
+				}
+				else if(strstr(RxString, "G729 On") != 0)
+				{
+					printf("**G729 On\n");
+					G729_En = 1;
+				}
+				else if(strstr(RxString, "G729 Off") != 0)
+				{
+					printf("**G729 Off\n");
+					G729_En = 0;
+				}
+				else if(strstr(RxString, "G168 On") != 0)
+				{
+					printf("**G168 On\n");
+					G168_En = 1;
+				}
+				else if(strstr(RxString, "G168 Off") != 0)
+				{
+					printf("**G168 Off\n");
+					G168_En = 0;
+				}
+				else if(strstr(RxString, "AEC On") != 0)
+				{
+					printf("**AEC On\n");
+					AEC_En = 1;
+				}
+				else if(strstr(RxString, "AEC Off") != 0)
+				{
+					printf("**AEC Off\n");
+					AEC_En = 0;
 				}
 				else if(strstr(RxString, "quit") != 0)
 				{

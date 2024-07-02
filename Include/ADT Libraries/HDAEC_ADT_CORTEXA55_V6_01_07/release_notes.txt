@@ -1,0 +1,16 @@
+/* Adaptive Digital Technologies, Inc 	*/
+/* support@adaptivedigital.com         	*/
+/* April 11, 2024                   	*/
+
+1. HD-AEC Cortex A55 Version V6_01_07
+
+Toolchain: aarch64 Poky 3.1.26 
+
+1.1 The libraries are placed under aecg4\libs\arm
+
+1.2 The C API users guide is placed under aecg4\doc
+
+1.3 The C header file is placed under aecg4\include
+
+
+
