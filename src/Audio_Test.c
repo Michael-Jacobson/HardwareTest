@@ -594,7 +594,7 @@ void *ProcessRxAudioSamples(void *arg)
 			 * the samples start with POTS, sometimes it starts with Handset. there is no way
 			 * to know which is which. so we have to play this averages game to figure it out
 			 */
-			if((AveragesRX[POTS_Sample_Index] == 0) && (AveragesRX[HS_Sample_Index] != 0))
+			if((AveragesRX[PHONELINE] == 0) && (AveragesRX[HANDSET] != 0))
 			{
 				printf("Switching Inputs on #%d!\n", RunOnce);
 				POTS_Sample_Index = HANDSET;
