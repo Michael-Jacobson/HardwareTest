@@ -622,22 +622,22 @@ void *ProcessRxAudioSamples(void *arg)
 	  sizeof(G168LEC_DAScratch),
 	  MAX_FRAME_SIZE,                /* 10mS(80 samples) Framesize */
 	  MAX_TAP_LENGTH,               /* XXmS tail length */
-	  NLP_HOTH_CNG,                 /* NLP ON, CNG ON */
+	  NLP_SUPP_AUTO,                 /* NLP ON, CNG ON */
 	  1,                            /* Enable adaptation */
 	  0,                            /* LEC bypass OFF */
 	  0,                            /* Disable G165 Tone Detector (we really don't want this ON) */
 	  6,                            /* Double talk threshold */
 	  40,                            /* Max doubletalk value, varies from default for startup bleedthru reasons */
-	  0,                            /* Saturation Level */
+	  3,                            /* Saturation Level */
 	  DYNAMIC_NLP_DISABLE,
-	  36,                           /* NLP threshold */
-	  24,                           /* NLP Upper Limit Conv threshold */
+	  24,                           /* NLP threshold */
+	  18,                           /* NLP Upper Limit Conv threshold */
 	  0,                            /* NLP Upper Limit Unconv threshold, varies from default for startup bleedthru reasons  */
 	  6,                            /* NLP saturation threshold */
-	  10,                           /* NLP Max Suppress */
-	  43,                           /* CNG noise threshold */
-	  MAX_FRAME_SIZE/2,              /* Adaptlimit */
-	  ((MAX_FRAME_SIZE/7)+1),        /* CrossCorrLimit */
+	  20,                           /* NLP Max Suppress */
+	  60,                           /* CNG noise threshold */
+	  ((3*MAX_FRAME_SIZE)/4),              /* Adaptlimit */
+	  ((MAX_FRAME_SIZE/5)+1),        /* CrossCorrLimit */
 	  80,                           /* FIRTapCheckPeriod */
 	  MAX_FIR_SEGMENTS,             /* NFIRSegments */
 	  MAX_FIR_SEGMENT_LENGTH,       /* FIRSegmentLength */
@@ -790,7 +790,7 @@ void *ProcessRxAudioSamples(void *arg)
 	   0 //reserved
 	};
 
-	printf("Initializing AEC\n");
+	/*printf("Initializing AEC\n");
 	if(hAEC == NULL)
 	{
 		hAEC = AECG4_ADT_create(0, &MYAECG4_PARAMS);
@@ -798,7 +798,7 @@ void *ProcessRxAudioSamples(void *arg)
 	else
 	{
 		AECG4_ADT_reset(hAEC, &MYAECG4_PARAMS);
-	}
+	}*/
 
 	while(RxAudioProcessingThread_KeepGoing)
 	{
@@ -822,7 +822,9 @@ void *ProcessRxAudioSamples(void *arg)
 		AveragesRX[1] = avg1/(PERIOD_LEN);
 		AveragesRX[0] = avg2/(PERIOD_LEN);
 
-		if(RunOnce <= 10)
+#define MAX_WAIT_FOR_CORRECTION	100
+
+		if(RunOnce <= MAX_WAIT_FOR_CORRECTION)
 		{
 			RunOnce++;
 			/*
@@ -836,7 +838,7 @@ void *ProcessRxAudioSamples(void *arg)
 				printf("Switching Inputs on #%d!\n", RunOnce);
 				POTS_Sample_Index = HANDSET;
 				HS_Sample_Index = PHONELINE;
-				RunOnce = 11;
+				RunOnce = MAX_WAIT_FOR_CORRECTION+1;
 			}
 		}
 		else
@@ -912,14 +914,14 @@ void *ProcessRxAudioSamples(void *arg)
 		//G168
 		if(G168_En)
 		{
-			memcpy(LEC_Near_buf, RawLiveCallPOTSSamples, PERIOD_LEN);
+			memcpy(LEC_Near_buf, RawLiveCallPOTSSamples, sizeof(LEC_Near_buf));
 
-			memcpy(LEC_Far_buf, RawLiveCallHSSamples, PERIOD_LEN);
+			memcpy(LEC_Far_buf, RawLiveCallHSSamples, sizeof(LEC_Far_buf));
 
 			LEC_ADT_g168echoCancel((G168ChannelInst_t *)&G168LECChannel, (ADT_Int16 *)LEC_Near_buf, (ADT_Int16 *)LEC_Far_buf);
 			LEC_ADT_g168postCancel((G168ChannelInst_t *)&G168LECChannel, (ADT_Int16 *)LEC_Near_buf, (ADT_Int16 *)LEC_Far_buf);
 
-			memcpy((void *)RawLiveCallPOTSSamples, (void *)LEC_Near_buf, PERIOD_LEN);
+			memcpy((void *)RawLiveCallPOTSSamples, (void *)LEC_Near_buf, sizeof(RawLiveCallPOTSSamples));
 		}
 
 
@@ -933,7 +935,7 @@ void *ProcessRxAudioSamples(void *arg)
 			AECG4_ADT_apply(hAEC, (ADT_Int16 *)RawLiveCallHSTxSamples, (ADT_Int16 *)aec_RxOut_ping_pong_buf,
 			                                            RawLiveCallHSSamples, PostAEC_handset_adc_samples);
 
-			memcpy(RawLiveCallHSTxSamples, aec_RxOut_ping_pong_buf, sizeof(RawLiveCallHSTxSamples));
+			memcpy(RawLiveCallPOTSSamples, aec_RxOut_ping_pong_buf, sizeof(RawLiveCallPOTSSamples));
 		}
 
         //if(g_hook_sw_status != ONHOOK)
@@ -943,7 +945,10 @@ void *ProcessRxAudioSamples(void *arg)
         }
     }
 
-	AECG4_ADT_delete(hAEC);
+	if(hAEC != NULL)
+	{
+		AECG4_ADT_delete(hAEC);
+	}
 
 
     return 0;
