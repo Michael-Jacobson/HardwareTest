@@ -38,10 +38,10 @@ all:
 main-build: HardwareTest
 
 # Tool invocations
-HardwareTest: $(OBJS) $(USER_OBJS) makefile $(OPTIONAL_TOOL_DEPS) /home/michaeljacobson/eclipse-workspace/HardwareTest/Lib/libadt_g729ab_cortexa55_v3_06_06.a /home/michaeljacobson/eclipse-workspace/HardwareTest/Lib/libaecg4_adt_cortexa55_v6_01_07.a /home/michaeljacobson/eclipse-workspace/HardwareTest/Lib/libaes_adt_cortexa55_v4_00_02.a /home/michaeljacobson/eclipse-workspace/HardwareTest/Lib/libagc_adt_cortexa55_v3_09_00.a /home/michaeljacobson/eclipse-workspace/HardwareTest/Lib/libg168_adt_cortexa55_v11_19_11.a /home/michaeljacobson/eclipse-workspace/HardwareTest/Lib/libnr2_adt_cortexa55_v3_04_02.a /home/michaeljacobson/eclipse-workspace/HardwareTest/Lib/libvadcng_adt_cortexa55_v5_04_01.a
+HardwareTest: $(OBJS) $(USER_OBJS) makefile $(OPTIONAL_TOOL_DEPS) /home/michaeljacobson/eclipse-workspace/HardwareTest/Lib/libadt_g729ab_cortexa55_v3_06_06.a /home/michaeljacobson/eclipse-workspace/HardwareTest/Lib/libaecg4_adt_cortexa55_v6_01_07b.a /home/michaeljacobson/eclipse-workspace/HardwareTest/Lib/libaes_adt_cortexa55_v4_00_02.a /home/michaeljacobson/eclipse-workspace/HardwareTest/Lib/libagc_adt_cortexa55_v3_09_00.a /home/michaeljacobson/eclipse-workspace/HardwareTest/Lib/libg168_adt_cortexa55_v11_19_11.a /home/michaeljacobson/eclipse-workspace/HardwareTest/Lib/libnr2_adt_cortexa55_v3_04_02.a /home/michaeljacobson/eclipse-workspace/HardwareTest/Lib/libvadcng_adt_cortexa55_v5_04_01.a
 	@echo 'Building target: $@'
 	@echo 'Invoking: Cross GCC Linker'
-	aarch64-poky-linux-gcc -L"/home/michaeljacobson/eclipse-workspace/HardwareTest/Lib" --sysroot=/opt/poky/3.1.31/sysroots/aarch64-poky-linux -o "HardwareTest" $(OBJS) $(USER_OBJS) $(LIBS) "/home/michaeljacobson/eclipse-workspace/HardwareTest/Lib/libadt_g729ab_cortexa55_v3_06_06.a" "/home/michaeljacobson/eclipse-workspace/HardwareTest/Lib/libaecg4_adt_cortexa55_v6_01_07.a" "/home/michaeljacobson/eclipse-workspace/HardwareTest/Lib/libaes_adt_cortexa55_v4_00_02.a" "/home/michaeljacobson/eclipse-workspace/HardwareTest/Lib/libagc_adt_cortexa55_v3_09_00.a" "/home/michaeljacobson/eclipse-workspace/HardwareTest/Lib/libg168_adt_cortexa55_v11_19_11.a" "/home/michaeljacobson/eclipse-workspace/HardwareTest/Lib/libnr2_adt_cortexa55_v3_04_02.a" "/home/michaeljacobson/eclipse-workspace/HardwareTest/Lib/libvadcng_adt_cortexa55_v5_04_01.a" -lpthread -lm -lasound
+	aarch64-poky-linux-gcc -L"/home/michaeljacobson/eclipse-workspace/HardwareTest/Lib" --sysroot=/opt/poky/3.1.31/sysroots/aarch64-poky-linux -o "HardwareTest" $(OBJS) $(USER_OBJS) $(LIBS) "/home/michaeljacobson/eclipse-workspace/HardwareTest/Lib/libadt_g729ab_cortexa55_v3_06_06.a" "/home/michaeljacobson/eclipse-workspace/HardwareTest/Lib/libaecg4_adt_cortexa55_v6_01_07b.a" "/home/michaeljacobson/eclipse-workspace/HardwareTest/Lib/libaes_adt_cortexa55_v4_00_02.a" "/home/michaeljacobson/eclipse-workspace/HardwareTest/Lib/libagc_adt_cortexa55_v3_09_00.a" "/home/michaeljacobson/eclipse-workspace/HardwareTest/Lib/libg168_adt_cortexa55_v11_19_11.a" "/home/michaeljacobson/eclipse-workspace/HardwareTest/Lib/libnr2_adt_cortexa55_v3_04_02.a" "/home/michaeljacobson/eclipse-workspace/HardwareTest/Lib/libvadcng_adt_cortexa55_v5_04_01.a" -lpthread -lm -lasound
 	@echo 'Finished building target: $@'
 	@echo ' '
 
@@ -52,7 +52,7 @@ clean:
 
 post-build:
 	-@echo 'Copy To Target'
-	-scp -o HostKeyAlgorithms=ssh-rsa HardwareTest root@192.168.44.247:/home/root
+	-scp -o HostKeyAlgorithms=ssh-rsa HardwareTest root@192.168.44.245:/home/root
 	-@echo ' '
 
 .PHONY: all clean dependents main-build post-build

@@ -742,7 +742,7 @@ void *ProcessRxAudioSamples(void *arg)
 	 ***********************************************************************************************/
 	IAECG4_Handle hAEC = NULL;
 	ADT_Int16 aec_RxOut_ping_pong_buf[MAX_FRAME_SIZE];
-	//ADT_Int16 aec_TxOut_ping_pong_buf[2][MAX_FRAME_SIZE];
+	//ADT_Int16 aec_TxOut_ping_pong_buf[MAX_FRAME_SIZE];
 	IAECG4_Params MYAECG4_PARAMS = {
 	   // Base Parameters
 	   sizeof(IAECG4_Params),
@@ -790,7 +790,7 @@ void *ProcessRxAudioSamples(void *arg)
 	   0 //reserved
 	};
 
-	/*printf("Initializing AEC\n");
+	printf("Initializing AEC\n");
 	if(hAEC == NULL)
 	{
 		hAEC = AECG4_ADT_create(0, &MYAECG4_PARAMS);
@@ -798,7 +798,7 @@ void *ProcessRxAudioSamples(void *arg)
 	else
 	{
 		AECG4_ADT_reset(hAEC, &MYAECG4_PARAMS);
-	}*/
+	}
 
 	while(RxAudioProcessingThread_KeepGoing)
 	{
@@ -840,10 +840,6 @@ void *ProcessRxAudioSamples(void *arg)
 				HS_Sample_Index = PHONELINE;
 				RunOnce = MAX_WAIT_FOR_CORRECTION+1;
 			}
-		}
-		else
-		{
-			RunOnce++;
 		}
 
 		memcpy(RawLiveCallHSSamples, DeinterlaceRxdBuf[HS_Sample_Index], (PERIOD_LEN*2));
@@ -932,13 +928,15 @@ void *ProcessRxAudioSamples(void *arg)
 
 			memset(PostAEC_handset_adc_samples, 0, sizeof(PostAEC_handset_adc_samples));
 
+			memcpy(RawLiveCallHSTxSamples, RawLiveCallPOTSSamples, (PERIOD_LEN*2));
+
 			AECG4_ADT_apply(hAEC, (ADT_Int16 *)RawLiveCallHSTxSamples, (ADT_Int16 *)aec_RxOut_ping_pong_buf,
 			                                            RawLiveCallHSSamples, PostAEC_handset_adc_samples);
 
-			memcpy(RawLiveCallPOTSSamples, aec_RxOut_ping_pong_buf, sizeof(RawLiveCallPOTSSamples));
+			memcpy(RawLiveCallHSTxSamples, aec_RxOut_ping_pong_buf, sizeof(RawLiveCallHSTxSamples));
+			memcpy(RawLiveCallPOTSTxSamples, PostAEC_handset_adc_samples, sizeof(RawLiveCallPOTSSamples));
 		}
-
-        //if(g_hook_sw_status != ONHOOK)
+		else
         {
         	memcpy(RawLiveCallPOTSTxSamples, RawLiveCallHSSamples, (PERIOD_LEN*2));
         	memcpy(RawLiveCallHSTxSamples, RawLiveCallPOTSSamples, (PERIOD_LEN*2));
