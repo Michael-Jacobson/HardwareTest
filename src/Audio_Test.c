@@ -96,8 +96,10 @@ short RawLiveCallHSTxSamples[PERIOD_LEN];
 
 BOOL TxRunning = FALSE;
 
-int POTS_Sample_Index = PHONELINE;
-int HS_Sample_Index = HANDSET;
+int POTS_Sample_Rx_Index = PHONELINE;
+int HS_Sample_Rx_Index = HANDSET;
+int POTS_Sample_Tx_Index = PHONELINE;
+int HS_Sample_Tx_Index = HANDSET;
 
 int AGC_En = 0;
 int NR_En = 0;
@@ -316,7 +318,7 @@ void *ReadAudioSamples(void *arg)
     	usleep(1);
     }
 
-    snd_pcm_start(capture_handle);
+    //snd_pcm_start(capture_handle);
 
     /***************************************************************************************************************/
     /***************************************************************************************************************/
@@ -546,6 +548,7 @@ void *WriteAudioSamples(void *arg)
 			{
 				if(TxAudioProcessingThread != 0)
 				{
+					snd_pcm_start(capture_handle);
 					TxRunning = TRUE;
 					TxGoodCount++;
 					sem_post(&AudioTxSem);
@@ -756,10 +759,10 @@ void *ProcessRxAudioSamples(void *arg)
 	   0, // reserved
 	   128, // activeTailLengthMSec
 	   128, // totalTailLengthMSec
-	   -15, // txNLPAggressiveness
-	   30, // MaxTxLossSTdB
-	   3, // MaxTxLossDTdB
-	   3, // MaxRxLossdB;
+	   1, // txNLPAggressiveness
+	   40, // MaxTxLossSTdB
+	   20, // MaxTxLossDTdB
+	   12, // MaxRxLossdB;
 	   0, // initialRxOutAttendB
 	   -85, // targetResidualLeveldBm;
 	   -90, // maxRxNoiseLeveldBm;
@@ -768,7 +771,7 @@ void *ProcessRxAudioSamples(void *arg)
 	   0, // noiseReduction1Setting
 	   0, // noiseReduction2Setting
 	   1, // cngEnable
-	   0, // fixedGaindB
+	   127, // fixedGaindB
 	   // txAGC Parameters
 	   0, // ADT_Int8 txAGCEnable;
 	   10, // ADT_Int8 txAGCMaxGaindB;
@@ -781,9 +784,9 @@ void *ProcessRxAudioSamples(void *arg)
 	   0, //rxAGCMaxLossdB;
 	   -2, //rxAGCTargetLeveldBm;
 	   -33, //rxAGCLowSigThreshdBm;
-	   0, //rxBypassEnable
+	   1, //rxBypassEnable
 	   0, //maxTrainingTimeMSec
-	   -40, //trainingRxNoiseLeveldBm
+	   0, //trainingRxNoiseLeveldBm
 	   0, //ADT_Int16 pTxEqualizer
 	   0, //mipsMemReductionSetting
 	   0, //mipsReductionSetting2
@@ -836,14 +839,14 @@ void *ProcessRxAudioSamples(void *arg)
 			if((AveragesRX[PHONELINE] == 0) && (AveragesRX[HANDSET] != 0))
 			{
 				printf("Switching Inputs on #%d!\n", RunOnce);
-				POTS_Sample_Index = HANDSET;
-				HS_Sample_Index = PHONELINE;
+				POTS_Sample_Rx_Index = HANDSET;
+				HS_Sample_Rx_Index = PHONELINE;
 				RunOnce = MAX_WAIT_FOR_CORRECTION+1;
 			}
 		}
 
-		memcpy(RawLiveCallHSSamples, DeinterlaceRxdBuf[HS_Sample_Index], (PERIOD_LEN*2));
-		memcpy(RawLiveCallPOTSSamples, DeinterlaceRxdBuf[POTS_Sample_Index], (PERIOD_LEN*2));
+		memcpy(RawLiveCallHSSamples, DeinterlaceRxdBuf[HS_Sample_Rx_Index], (PERIOD_LEN*2));
+		memcpy(RawLiveCallPOTSSamples, DeinterlaceRxdBuf[POTS_Sample_Rx_Index], (PERIOD_LEN*2));
 
 		//AGC
 		if(AGC_En)
@@ -912,7 +915,7 @@ void *ProcessRxAudioSamples(void *arg)
 		{
 			memcpy(LEC_Near_buf, RawLiveCallPOTSSamples, sizeof(LEC_Near_buf));
 
-			memcpy(LEC_Far_buf, RawLiveCallHSSamples, sizeof(LEC_Far_buf));
+			memcpy(LEC_Far_buf, RawLiveCallPOTSTxSamples, sizeof(LEC_Far_buf));
 
 			LEC_ADT_g168echoCancel((G168ChannelInst_t *)&G168LECChannel, (ADT_Int16 *)LEC_Near_buf, (ADT_Int16 *)LEC_Far_buf);
 			LEC_ADT_g168postCancel((G168ChannelInst_t *)&G168LECChannel, (ADT_Int16 *)LEC_Near_buf, (ADT_Int16 *)LEC_Far_buf);
@@ -982,8 +985,8 @@ void *ProcessTxAudioSamples(void *arg)
         //Tx Processing here
         //if(g_hook_sw_status != ONHOOK)
         {
-			memcpy(DeinterlaceTxdBuf[PHONELINE], RawLiveCallPOTSTxSamples, (PERIOD_LEN*2));
-			memcpy(DeinterlaceTxdBuf[HANDSET], RawLiveCallHSTxSamples, (PERIOD_LEN*2));
+			memcpy(DeinterlaceTxdBuf[POTS_Sample_Tx_Index], RawLiveCallPOTSTxSamples, (PERIOD_LEN*2));
+			memcpy(DeinterlaceTxdBuf[HS_Sample_Tx_Index], RawLiveCallHSTxSamples, (PERIOD_LEN*2));
         }
 
         index = 0;
@@ -993,14 +996,14 @@ void *ProcessTxAudioSamples(void *arg)
         //re-interlace the audio samples for the tx system
         for(i = 0; i < (PERIOD_LEN*NUM_OF_CHANNELS); i+=2)
         {
-            Txbuf[i] = DeinterlaceTxdBuf[HANDSET][index];
-            Txbuf[i+1] = DeinterlaceTxdBuf[PHONELINE][index++];
+            Txbuf[i] = DeinterlaceTxdBuf[HS_Sample_Tx_Index][index];
+            Txbuf[i+1] = DeinterlaceTxdBuf[POTS_Sample_Tx_Index][index++];
 			avg1 += Txbuf[i+1];
 			avg2 += Txbuf[i];
         }
 
-        AveragesTX[PHONELINE] = avg1/(PERIOD_LEN);
-        AveragesTX[HANDSET] = avg2/(PERIOD_LEN);
+        AveragesTX[POTS_Sample_Tx_Index] = avg1/(PERIOD_LEN);
+        AveragesTX[HS_Sample_Tx_Index] = avg2/(PERIOD_LEN);
     }
 
 
