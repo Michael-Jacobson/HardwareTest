@@ -109,11 +109,11 @@ int main(void)
 	printf("Init Touch\n");
 	initTouch();
 
-	/*printf("Init Backlight\n");
+	printf("Init Backlight\n");
 	if(InitBacklight() != 2)
 	{
 		g_RunProcess = 1;
-	}*/
+	}
 
 	ChangeCodecState(CODEC_SET_POTS_ADC, ADC_PLUS_7_5DB);
 

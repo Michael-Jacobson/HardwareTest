@@ -188,7 +188,7 @@ int read_i2c(char which_i2c, char device_addr, unsigned char reg_addr, unsigned 
 		int result = ioctl(*p_fd_used, I2C_RDWR, &ioctl_data);
 		if (result < 0)
 		{
-			printf("failed to i2c read fs=%d i2c bus=%d device=%d register=%d length=%d, error=%d, %s\n",
+			printf("failed to i2c read fd=%d i2c bus=%d device=%d register=%d length=%d, error=%d, %s\n",
 					*p_fd_used, which_i2c, device_addr, reg_addr, len, errno, strerror(errno));
 			data_returned = -1;
 		}
@@ -274,19 +274,19 @@ void Test_DigitPOT(void)
 	unsigned char new_value = 0;
 	char pass = 0;
 
-	if(read_i2c(1, 0x28, 0, &value, 1) > 0)
+	if(read_i2c(0, 0x28, 0, &value, 1) > 0)
 	{
-		new_value = value + 1;
+		//new_value = value + 1;
 
-		if(write_i2c(1, 0x28, 0, &new_value, 1) > 0)
+		//if(write_i2c(0, 0x28, 0, &new_value, 1) > 0)
 		{
-			new_value = 0;
+			//new_value = 0;
 
-			usleep(100000);
+			//usleep(100000);
 
-			if(read_i2c(1, 0x28, 0, &new_value, 1) > 0)
+			//if(read_i2c(0, 0x28, 0, &new_value, 1) > 0)
 			{
-				if(new_value == (value + 1))
+				//if(new_value == (value + 1))
 				{
 					printf("DigiPOT pass: %d=%d+1\n", new_value, value);
 					pass = 1;

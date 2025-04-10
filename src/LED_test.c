@@ -22,6 +22,7 @@
 #define VOLUME4_LED_PATH        "/sys/class/leds/vol4_led/brightness"
 #define VOLUME5_LED_PATH        "/sys/class/leds/vol5_led/brightness"
 #define VOLUME6_LED_PATH        "/sys/class/leds/vol6_led/brightness"
+#define OFFHOOK_LED_PATH        "/sys/class/leds/HookSwControl/brightness"
 
 int RingFlasherLED = 0;
 int CaptionsLED = 0;
@@ -34,6 +35,7 @@ int Volume3LED = 0;
 int Volume4LED = 0;
 int Volume5LED = 0;
 int Volume6LED = 0;
+int HookSwControl = 0;
 
 static void SetLED(int WhichLED, char value);
 //static void GetLED(int WhichLED, char *value);
@@ -112,8 +114,15 @@ void InitLEDs(void)
 		printf(" Failed to Open Volume6LED\n");
 	}
 
+	HookSwControl = open(OFFHOOK_LED_PATH, O_RDWR);
+	if(HookSwControl <= 0)
+	{
+		printf(" Failed to Open HookSwControl\n");
+	}
+
 	//turn off all LEDs
 	TurnOffAllLEDs();
+	SetHookswitch(1);
 }
 
 /*****************************************************************************
@@ -225,6 +234,12 @@ void CloseLEDs(void)
 		close(Volume6LED);
 		Volume6LED = 0;
 	}
+
+	if(HookSwControl > 0)
+	{
+		close(HookSwControl);
+		HookSwControl = 0;
+	}
 }
 
 /*****************************************************************************
@@ -249,6 +264,15 @@ static void SetLED(int WhichLED, char value)
             fsync(WhichLED);
         }*/
     }
+}
+
+/**********************************************************************
+ *
+ */
+void SetHookswitch(unsigned char hook_sw_status)
+{
+    //printf("Setting hookswitch with value %d\n", hook_sw_status);
+	SetLED(HookSwControl, !hook_sw_status);
 }
 
 /*****************************************************************************

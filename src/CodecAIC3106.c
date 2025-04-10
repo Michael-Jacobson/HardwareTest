@@ -296,7 +296,7 @@ static BOOL Codec_i2c_read(U8 I2CAddr, U8 RegAddr, U8 *p_read_data)
 
     //usleep(100000);
 
-	if(read_i2c(3, I2CAddr, RegAddr, p_read_data, 1) >= 0)
+	if(read_i2c(0, I2CAddr, RegAddr, p_read_data, 1) >= 0)
 	{
 		pass = TRUE;
 	}
@@ -313,7 +313,7 @@ static BOOL Codec_i2c_write(U8 I2CAddr, U8 RegAddr, U8 write_data)
 
     //usleep(100000);
 
-    if(write_i2c(3, I2CAddr, RegAddr, &write_data, 1) >= 0)
+    if(write_i2c(0, I2CAddr, RegAddr, &write_data, 1) >= 0)
     {
     	pass = TRUE;
     }
