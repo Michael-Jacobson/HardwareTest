@@ -21,6 +21,8 @@
 #include "C674xTypes.h"
 #include "Ultratec_Enums.h"
 #include "Codec.h"
+#include "i2c_test.h"
+#include "CodecAIC3106.h"
 
 #define CLOCKID CLOCK_REALTIME
 #define SIG SIGRTMIN
@@ -36,8 +38,10 @@ char g_outString[100];
 
 char collectString = 1;
 
-extern int POTS_Sample_Index;
-extern int HS_Sample_Index;
+extern int POTS_Sample_Rx_Index;
+extern int HS_Sample_Rx_Index;
+extern int POTS_Sample_Tx_Index;
+extern int HS_Sample_Tx_Index;
 
 extern int RxGoodCount;
 extern int RxBadCount;
@@ -46,13 +50,13 @@ extern int TxBadCount;
 extern int AveragesTX[2];
 extern int AveragesRX[2];
 
-void initKeyboard(void);
+
+//void initKeyboard(void);
 void CloseKeyboard(void);
 void InitCodec(void);
 void CloseCodec(void);
 void SelectHandset(void);
-void SetDACGain(U8 WhichDAC, int GainValue);
-void SetADCGain(U8 WhichADC, int GainValue);
+void SelectSpeakerphone(void);
 char InitBacklight(void);
 void InitRTC(void);
 void CloseRTC(void);
@@ -60,6 +64,7 @@ void InitLEDs(void);
 void CloseLEDs(void);
 void TurnOnAllLEDs(void);
 void TurnOffAllLEDs(void);
+void TestFlasher(void);
 void InitGPIO(void);
 void CloseGPIO(void);
 void GoOffhook(void);
@@ -69,36 +74,57 @@ char SetBacklightValue(int percent);
 int SetRealTime(void);
 void initTouch(void);
 void CloseTouch(void);
+char InitWiFi(void);
+void DoWiFiScan(void);
+void CloseWiFi(void);
 
 int main(void)
 {
-	printf("\n\n\n!!!!!Hardware Test!!!!!\n\n"); /* prints !!!Hello World!!! */
+	printf("\n\n\n!!!!!Hardware Test!!!!!\n\n");
+
+	init_i2c(ALL_I2C_BUSES);
 
 	printf("Init LEDs\n");
 	InitLEDs();
+
 	printf("Init GPIO\n");
 	InitGPIO();
+
 	GoOnhook(); //default to onhook
 	//printf("Init Keyboard\n");
 	//initKeyboard();
 	printf("Init RTC\n");
 	InitRTC();
-	//sleep(1);
+
 	printf("Init Codec\n");
 	InitCodec();
-	sleep(1);
+	while(GetCodecControlState() != CODEC_IDLE)
+	{
+		usleep(2);
+	}
+
 	printf("Init Touch\n");
 	initTouch();
 
-	/*printf("Init Backlight\n");
+	printf("Init Backlight\n");
 	if(InitBacklight() != 2)
 	{
 		g_RunProcess = 1;
-	}*/
+	}
 
-	SelectHandset();
-	SetADCGain(PHONELINE, ADC_PLUS_7_5DB);
+	ChangeCodecState(CODEC_SET_POTS_ADC, ADC_PLUS_7_5DB);
 
+	Test_DigitPOT();
+
+	printf("Init WiFi\n");
+	if(InitWiFi())
+	{
+		//printf("pass\n");
+	}
+	else
+	{
+		printf("WiFi fail\n");
+	}
 
 	while(g_RunProcess)
 	{
@@ -115,8 +141,10 @@ int main(void)
 				if(strstr(RxString, "offhook") != 0)
 				{
 					printf("**Going Off hook\n");
-
 					GoOffhook();
+
+					printf("**Setting Handset\n");
+					SelectHandset();
 				}
 				else if(strstr(RxString, "onhook") != 0)
 				{
@@ -133,6 +161,11 @@ int main(void)
 					printf("**Turning off all LEDs\n");
 					TurnOffAllLEDs();
 				}
+				else if(strstr(RxString, "flasher") != 0)
+				{
+					printf("**Testing Flasher for 5s\n");
+					TestFlasher();
+				}
 				else if(strstr(RxString, "backlight on") != 0)
 				{
 					printf("**Setting Backlight to 100 Percent\n");
@@ -146,14 +179,26 @@ int main(void)
 				else if(strstr(RxString, "unmute") != 0)
 				{
 					printf("**Unmuting Handset\n");
-					SetADCGain(HANDSET, ADC_PLUS_7_5DB);
-					SetDACGain(HANDSET, DAC_MINUS_7_5DB);
+					ChangeCodecState(CODEC_SET_USER_ADC, ADC_PLUS_7_5DB);
+					ChangeCodecState(CODEC_SET_USER_DAC, DAC_MINUS_7_5DB);
 				}
 				else if(strstr(RxString, "mute") != 0)
 				{
 					printf("**Muting Handset\n");
-					SetADCGain(HANDSET, ADC_MUTE);
-					SetDACGain(HANDSET, DAC_MUTE);
+					ChangeCodecState(CODEC_SET_USER_ADC, ADC_MUTE);
+					ChangeCodecState(CODEC_SET_USER_DAC, DAC_MUTE);
+				}
+				else if(strstr(RxString, "Handset") != 0)
+				{
+					printf("**Selecting Handset\n");
+					SelectHandset();
+					AEC_En = 0;
+				}
+				else if(strstr(RxString, "Speaker") != 0)
+				{
+					printf("**Selecting Speakerphone\n");
+					SelectSpeakerphone();
+					AEC_En = 1;
 				}
 				else if(strstr(RxString, "set time") != 0)
 				{
@@ -168,8 +213,25 @@ int main(void)
 				else if(strstr(RxString, "averages") != 0)
 				{
 					printf("**Average POTS Tx:%d\n**Average Handset Tx:%d\n\n**Average POTS Rx:%d\n**Average Handset Rx:%d\n",
-							AveragesTX[PHONELINE], AveragesTX[HANDSET],
-							AveragesRX[POTS_Sample_Index], AveragesRX[HS_Sample_Index]);
+							AveragesTX[POTS_Sample_Tx_Index], AveragesTX[HS_Sample_Tx_Index],
+							AveragesRX[POTS_Sample_Rx_Index], AveragesRX[HS_Sample_Rx_Index]);
+				}
+				else if(strstr(RxString, "Reverse Rx") != 0)
+				{
+					printf("**Reversing POTS and HS Rx Channels\n");
+					POTS_Sample_Tx_Index = !POTS_Sample_Tx_Index;
+					HS_Sample_Tx_Index = !HS_Sample_Tx_Index;
+				}
+				else if(strstr(RxString, "Reverse Tx") != 0)
+				{
+					printf("**Reversing POTS and HS Tx Channels\n");
+					POTS_Sample_Rx_Index = !POTS_Sample_Rx_Index;
+					HS_Sample_Tx_Index = !HS_Sample_Tx_Index;
+				}
+				else if(strstr(RxString, "WiFi Scan") != 0)
+				{
+					printf("**WiFi Scan Started\n");
+					DoWiFiScan();
 				}
 				else if(strstr(RxString, "quit") != 0)
 				{
@@ -179,7 +241,25 @@ int main(void)
 				}
 				else if(strstr(RxString, "help") != 0)
 				{
-					printf("**Commands:\n  offhook\n  onhook\n  leds on\n  leds off\n  backlight on\n  backlight off\n  mute\n  unmute\n  set time\n  quit\n");
+					printf("**Commands:\n  \
+offhook\n  \
+onhook\n  \
+leds on\n  \
+leds off\n  \
+flasher\n  \
+backlight on\n  \
+backlight off\n  \
+mute\n  \
+unmute\n  \
+Speaker\n  \
+Handset\n  \
+set time\n  \
+count\n  \
+averages\n  \
+Reverse Rx\n  \
+Reverse Tx\n  \
+WiFi Scan\n  \
+quit\n");
 				}
 
 				memset(RxString, 0, sizeof(RxString));
@@ -205,6 +285,10 @@ int main(void)
 	CloseLEDs();
 	printf("Close Touch\n");
 	CloseTouch();
+	printf("Close WiFi\n");
+	CloseWiFi();
+
+	close_i2c(ALL_I2C_BUSES);
 
 	printf("\n!!!!!Done Hardware Test!!!!!\n\n\n");
 

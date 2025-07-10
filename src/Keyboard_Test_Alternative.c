@@ -87,10 +87,10 @@ void *GPIOKeyboard(void *arg)
 			//get all the keys we need to read and write
 			memset(&KeyboardLinesCols, 0, sizeof(KeyboardLinesCols));
 
-			KeyboardLinesCols.lineoffsets[0] = (3*8 + 0);
-			KeyboardLinesCols.lineoffsets[1] = (2*8 + 0);
-			KeyboardLinesCols.lineoffsets[2] = (2*8 + 1);
-			KeyboardLinesCols.lineoffsets[3] = (40*8 + 2);
+			KeyboardLinesCols.lineoffsets[0] = (12*8 + 1);
+			KeyboardLinesCols.lineoffsets[1] = (13*8 + 0);
+			KeyboardLinesCols.lineoffsets[2] = (13*8 + 1);
+			KeyboardLinesCols.lineoffsets[3] = (13*8 + 2);
 			KeyboardLinesCols.lines = 4;
 			KeyboardLinesCols.flags = GPIOHANDLE_REQUEST_OUTPUT;
 			strcpy(KeyboardLinesCols.consumer_label, "Keyboard_Cols");
@@ -109,13 +109,13 @@ void *GPIOKeyboard(void *arg)
 
 			memset(&KeyboardLinesRows, 0, sizeof(KeyboardLinesRows));
 
-			KeyboardLinesRows.lineoffsets[0] = (41*8 + 0);
-			KeyboardLinesRows.lineoffsets[1] = (43*8 + 1);
-			KeyboardLinesRows.lineoffsets[2] = (42*8 + 2);
-			KeyboardLinesRows.lineoffsets[3] = (42*8 + 3);
-			KeyboardLinesRows.lineoffsets[4] = (3*8 + 1);
+			KeyboardLinesRows.lineoffsets[0] = (0*8 + 0);
+			KeyboardLinesRows.lineoffsets[1] = (0*8 + 1);
+			KeyboardLinesRows.lineoffsets[2] = (1*8 + 0);
+			KeyboardLinesRows.lineoffsets[3] = (1*8 + 1);
+			KeyboardLinesRows.lineoffsets[4] = (2*8 + 0);
 			KeyboardLinesRows.lines = 5;
-			KeyboardLinesRows.flags = GPIOHANDLE_REQUEST_INPUT;
+			KeyboardLinesRows.flags = GPIOHANDLE_REQUEST_INPUT | GPIOHANDLE_REQUEST_BIAS_PULL_UP;
 			strcpy(KeyboardLinesRows.consumer_label, "Keyboard_Rows");
 
 			Rowsfd = ioctl(GPIO_Dev_fd, GPIO_GET_LINEHANDLE_IOCTL, &KeyboardLinesRows);

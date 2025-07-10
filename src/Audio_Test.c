@@ -69,19 +69,21 @@ snd_pcm_t *playback_handle;
 snd_pcm_t *capture_handle;
 short Rxbuf[BUFF_SIZE];
 short Txbuf[BUFF_SIZE];
-short DeinterlaceRxdBuf[2][PERIOD_LEN*2]; //0 is handset, 1 is Phone line
-short DeinterlaceTxdBuf[2][PERIOD_LEN*2]; //0 is handset, 1 is phone line
+short DeinterlaceRxdBuf[2][PERIOD_LEN]; //0 is handset, 1 is Phone line
+short DeinterlaceTxdBuf[2][PERIOD_LEN]; //0 is handset, 1 is phone line
 
-short RawLiveCallPOTSSamples[PERIOD_LEN*2];
-short RawLiveCallHSSamples[PERIOD_LEN*2];
+short RawLiveCallPOTSSamples[PERIOD_LEN];
+short RawLiveCallHSSamples[PERIOD_LEN];
 
-short RawLiveCallPOTSTxSamples[PERIOD_LEN*2];
-short RawLiveCallHSTxSamples[PERIOD_LEN*2];
+short RawLiveCallPOTSTxSamples[PERIOD_LEN];
+short RawLiveCallHSTxSamples[PERIOD_LEN];
 
 BOOL TxRunning = FALSE;
 
-int POTS_Sample_Index = PHONELINE;
-int HS_Sample_Index = HANDSET;
+int POTS_Sample_Rx_Index = PHONELINE;
+int HS_Sample_Rx_Index = HANDSET;
+int POTS_Sample_Tx_Index = PHONELINE;
+int HS_Sample_Tx_Index = HANDSET;
 
 static void *ReadAudioSamples(void *arg);
 static void *WriteAudioSamples(void *arg);
@@ -292,7 +294,7 @@ void *ReadAudioSamples(void *arg)
     	usleep(1);
     }
 
-    snd_pcm_start(capture_handle);
+    //snd_pcm_start(capture_handle);
 
     /***************************************************************************************************************/
     /***************************************************************************************************************/
@@ -323,7 +325,7 @@ void *ReadAudioSamples(void *arg)
 					if(frames < 0)
 					{
 						fprintf (stderr, "recover read from audio interface failed (%d: %s)\n", frames, snd_strerror (frames));
-						//exit (1);
+						exit (1);
 					}
 				}
 				else
@@ -510,7 +512,7 @@ void *WriteAudioSamples(void *arg)
 					if(frames < 0)
 					{
 						fprintf (stderr, "recover write to audio interface failed (%d: %s)\n", frames, snd_strerror (frames));
-						//exit (1);
+						exit (1);
 					}
 				}
 				else
@@ -522,6 +524,7 @@ void *WriteAudioSamples(void *arg)
 			{
 				if(TxAudioProcessingThread != 0)
 				{
+					snd_pcm_start(capture_handle);
 					TxRunning = TRUE;
 					TxGoodCount++;
 					sem_post(&AudioTxSem);
@@ -585,7 +588,9 @@ void *ProcessRxAudioSamples(void *arg)
 		AveragesRX[1] = avg1/(PERIOD_LEN);
 		AveragesRX[0] = avg2/(PERIOD_LEN);
 
-		if(RunOnce <= 10)
+#define MAX_WAIT_FOR_CORRECTION	100
+
+		if(RunOnce <= MAX_WAIT_FOR_CORRECTION)
 		{
 			RunOnce++;
 			/*
@@ -597,17 +602,14 @@ void *ProcessRxAudioSamples(void *arg)
 			if((AveragesRX[PHONELINE] == 0) && (AveragesRX[HANDSET] != 0))
 			{
 				printf("Switching Inputs on #%d!\n", RunOnce);
-				POTS_Sample_Index = HANDSET;
-				HS_Sample_Index = PHONELINE;
-				RunOnce = 11;
+				POTS_Sample_Rx_Index = HANDSET;
+				HS_Sample_Rx_Index = PHONELINE;
+				RunOnce = MAX_WAIT_FOR_CORRECTION+1;
 			}
 		}
-		else
-		{
-			RunOnce++;
-		}
-		memcpy(RawLiveCallHSSamples, DeinterlaceRxdBuf[HS_Sample_Index], (PERIOD_LEN*2));
-		memcpy(RawLiveCallPOTSSamples, DeinterlaceRxdBuf[POTS_Sample_Index], (PERIOD_LEN*2));
+
+		memcpy(RawLiveCallHSSamples, DeinterlaceRxdBuf[HS_Sample_Rx_Index], (PERIOD_LEN*2));
+		memcpy(RawLiveCallPOTSSamples, DeinterlaceRxdBuf[POTS_Sample_Rx_Index], (PERIOD_LEN*2));
 
         //if(g_hook_sw_status != ONHOOK)
         {
@@ -650,8 +652,8 @@ void *ProcessTxAudioSamples(void *arg)
         //Tx Processing here
         //if(g_hook_sw_status != ONHOOK)
         {
-			memcpy(DeinterlaceTxdBuf[PHONELINE], RawLiveCallPOTSTxSamples, (PERIOD_LEN*2));
-			memcpy(DeinterlaceTxdBuf[HANDSET], RawLiveCallHSTxSamples, (PERIOD_LEN*2));
+			memcpy(DeinterlaceTxdBuf[POTS_Sample_Tx_Index], RawLiveCallPOTSTxSamples, (PERIOD_LEN*2));
+			memcpy(DeinterlaceTxdBuf[HS_Sample_Tx_Index], RawLiveCallHSTxSamples, (PERIOD_LEN*2));
         }
 
         index = 0;
@@ -661,14 +663,14 @@ void *ProcessTxAudioSamples(void *arg)
         //re-interlace the audio samples for the tx system
         for(i = 0; i < (PERIOD_LEN*NUM_OF_CHANNELS); i+=2)
         {
-            Txbuf[i] = DeinterlaceTxdBuf[HANDSET][index];
-            Txbuf[i+1] = DeinterlaceTxdBuf[PHONELINE][index++];
+            Txbuf[i] = DeinterlaceTxdBuf[HS_Sample_Tx_Index][index];
+            Txbuf[i+1] = DeinterlaceTxdBuf[POTS_Sample_Tx_Index][index++];
 			avg1 += Txbuf[i+1];
 			avg2 += Txbuf[i];
         }
 
-        AveragesTX[PHONELINE] = avg1/(PERIOD_LEN);
-        AveragesTX[HANDSET] = avg2/(PERIOD_LEN);
+        AveragesTX[POTS_Sample_Tx_Index] = avg1/(PERIOD_LEN);
+        AveragesTX[HS_Sample_Tx_Index] = avg2/(PERIOD_LEN);
     }
 
 

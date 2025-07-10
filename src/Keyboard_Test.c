@@ -63,7 +63,7 @@ void *MonitorKeyboardThread(void* arg)
     struct timeval keyboard_timeout;
     //static char PingPong = 1;
 
-    fd = open("/dev/input/event1", O_RDONLY);
+    fd = open("/dev/input/event0", O_RDONLY);
 
     if(fd <= 0)
     {
