@@ -1065,7 +1065,7 @@ BOOL AIC3106_Codec_Set_User_ADC(U32 Gain)
 
     return pass;
 }
-extern int G168_En;
+
 /********************************************************************************************************************************
  *  void function(void)
  *
@@ -1080,35 +1080,13 @@ extern int G168_En;
  ********************************************************************************************************************************/
 BOOL AIC3106_Codec_Set_User_DAC(U32 Gain)
 {
-    U8 SidetoneVolume[] = {
-                            DAC_MUTE,
-                            DAC_MINUS_43_8DB,
-                            DAC_MINUS_42_2DB,
-                            DAC_MINUS_40_7DB,
-                            DAC_MINUS_39_2DB,
-                            DAC_MINUS_37_7DB,
-                            DAC_MINUS_36_1DB,
-                            DAC_MINUS_34_6DB,
-                            DAC_MINUS_33_1DB,
-                            DAC_MINUS_31_6DB,
-                            DAC_MINUS_30_1DB,
-                            DAC_MINUS_28_6DB,
-                            DAC_MINUS_27_1DB };
-
     BOOL pass = FALSE;
 
-    pass = WriteToCodecReg(43, Gain, FALSE, CODEC_REG_READ_DEFAULT_MASK);
-
-    //route left PGA to LeftLO for sidetone - dB
-    if (G168_En)
+    if(WriteToCodecReg(43, Gain, FALSE, CODEC_REG_READ_DEFAULT_MASK))
     {
-    	//printf("Enabling sidetone\n");
-    	WriteToCodecReg(81, (CODEC_PAGE0_REG81_PGAL_ROUTED_LEFTLO | SidetoneVolume[10]), TRUE, CODEC_REG_READ_DEFAULT_MASK);
-    }
-    else
-    {
-    	//printf("Disabling sidetone\n");
-        WriteToCodecReg(81, 0, FALSE, CODEC_REG_READ_DEFAULT_MASK);
+		//route left PGA to LeftLO for sidetone - dB
+		//printf("Disabling sidetone\n");
+		pass = WriteToCodecReg(81, 0, FALSE, CODEC_REG_READ_DEFAULT_MASK);
     }
 
     return pass;

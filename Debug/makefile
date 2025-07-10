@@ -41,7 +41,7 @@ main-build: HardwareTest
 HardwareTest: $(OBJS) $(USER_OBJS) makefile $(OPTIONAL_TOOL_DEPS)
 	@echo 'Building target: $@'
 	@echo 'Invoking: Cross GCC Linker'
-	aarch64-poky-linux-gcc -L"/home/michaeljacobson/eclipse-workspace/HardwareTest/Lib" --sysroot=/opt/poky/3.1.31/sysroots/aarch64-poky-linux -o "HardwareTest" $(OBJS) $(USER_OBJS) $(LIBS) -lpthread -lasound
+	aarch64-poky-linux-gcc --sysroot=/opt/poky/3.1.33/sysroots/aarch64-poky-linux -o "HardwareTest" $(OBJS) $(USER_OBJS) $(LIBS) -lpthread -lasound
 	@echo 'Finished building target: $@'
 	@echo ' '
 
@@ -52,7 +52,7 @@ clean:
 
 post-build:
 	-@echo 'Copy To Target'
-	-scp -o HostKeyAlgorithms=ssh-rsa HardwareTest root@192.168.44.226:/home/root
+	-scp -o HostKeyAlgorithms=ssh-rsa HardwareTest root@192.168.44.202:/home/root
 	-@echo ' '
 
 .PHONY: all clean dependents main-build post-build

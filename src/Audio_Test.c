@@ -581,15 +581,15 @@ void *ProcessRxAudioSamples(void *arg)
 			avg2 += Rxbuf[i];
 
 
-			DeinterlaceRxdBuf[0][index] = Rxbuf[i];
-			DeinterlaceRxdBuf[1][index++] = Rxbuf[i+1];
+			DeinterlaceRxdBuf[HANDSET][index] = Rxbuf[i];
+			DeinterlaceRxdBuf[PHONELINE][index++] = Rxbuf[i+1];
 		}
 
-		AveragesRX[1] = avg1/(PERIOD_LEN);
-		AveragesRX[0] = avg2/(PERIOD_LEN);
+		AveragesRX[PHONELINE] = avg1/(PERIOD_LEN);
+		AveragesRX[HANDSET] = avg2/(PERIOD_LEN);
 
 #define MAX_WAIT_FOR_CORRECTION	100
-
+#if 0
 		if(RunOnce <= MAX_WAIT_FOR_CORRECTION)
 		{
 			RunOnce++;
@@ -607,7 +607,12 @@ void *ProcessRxAudioSamples(void *arg)
 				RunOnce = MAX_WAIT_FOR_CORRECTION+1;
 			}
 		}
-
+		if(RunOnce == MAX_WAIT_FOR_CORRECTION)
+		{
+			printf("Done Looking For Channel Swap\n");
+			RunOnce++;
+		}
+#endif
 		memcpy(RawLiveCallHSSamples, DeinterlaceRxdBuf[HS_Sample_Rx_Index], (PERIOD_LEN*2));
 		memcpy(RawLiveCallPOTSSamples, DeinterlaceRxdBuf[POTS_Sample_Rx_Index], (PERIOD_LEN*2));
 
@@ -663,14 +668,14 @@ void *ProcessTxAudioSamples(void *arg)
         //re-interlace the audio samples for the tx system
         for(i = 0; i < (PERIOD_LEN*NUM_OF_CHANNELS); i+=2)
         {
-            Txbuf[i] = DeinterlaceTxdBuf[HS_Sample_Tx_Index][index];
-            Txbuf[i+1] = DeinterlaceTxdBuf[POTS_Sample_Tx_Index][index++];
+            Txbuf[i] = DeinterlaceTxdBuf[HANDSET][index];
+            Txbuf[i+1] = DeinterlaceTxdBuf[PHONELINE][index++];
 			avg1 += Txbuf[i+1];
 			avg2 += Txbuf[i];
         }
 
-        AveragesTX[POTS_Sample_Tx_Index] = avg1/(PERIOD_LEN);
-        AveragesTX[HS_Sample_Tx_Index] = avg2/(PERIOD_LEN);
+        AveragesTX[PHONELINE] = avg1/(PERIOD_LEN);
+        AveragesTX[HANDSET] = avg2/(PERIOD_LEN);
     }
 
 

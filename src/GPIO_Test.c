@@ -25,6 +25,10 @@
 #include "C674xTypes.h"
 #include "Ultratec_Enums.h"
 
+#include "Codec.h"
+#include "CodecAIC3106.h"
+
+
 #define GPIO_DEV_PATH "/dev/gpiochip0" //gpio4 = 43:0 = item 43*8 + 0 = 344
 
 //#define GPIO_OFFHOOK	0
@@ -48,6 +52,9 @@ void InitGPIO(void);
 void CloseGPIO(void);
 void *GPIOKeys(void *arg);
 void *GPIOKeysPolled(void *arg);
+void GoOffhook(void);
+void GoOnhook(void);
+void SelectHandset(void);
 /*int write_GPIO(int GPIOLine, unsigned char value);
 int read_GPIO(int GPIOLine, struct gpiohandle_data *data);
 void SetHookswitch(unsigned char hook_sw_status);*/
@@ -311,10 +318,17 @@ void *GPIOKeys(void *arg)
 								if(ev[yalv].value == 1)
 								{
 									printf("Off hook\n");
+									GoOffhook();
+									SelectHandset();
+									ChangeCodecState(CODEC_SET_USER_ADC, ADC_PLUS_7_5DB);
+									ChangeCodecState(CODEC_SET_USER_DAC, DAC_MINUS_7_5DB);
 								}
 								else
 								{
 									printf("On hook\n");
+									ChangeCodecState(CODEC_SET_USER_ADC, ADC_MUTE);
+									ChangeCodecState(CODEC_SET_USER_DAC, DAC_MUTE);
+									GoOnhook();
 								}
                             }
                             break;
@@ -372,11 +386,11 @@ void *GPIOKeys(void *arg)
                     }
                     else
                     {
-                    	if(ev[yalv].code != 0)
+                    	/*if(ev[yalv].code != 0)
                     	{
                     		printf("Other kind of type: %d, code: %d, value: %d\n",
                     	                    			ev[yalv].type, ev[yalv].code, ev[yalv].value);
-                    	}
+                    	}*/
                     }
                 }
             }
@@ -467,10 +481,17 @@ void *GPIOKeysPolled(void *arg)
 								if(ev[yalv].value == 1)
 								{
 									printf("Off hook\n");
+									GoOffhook();
+									SelectHandset();
+									ChangeCodecState(CODEC_SET_USER_ADC, ADC_PLUS_7_5DB);
+									ChangeCodecState(CODEC_SET_USER_DAC, DAC_MINUS_7_5DB);
 								}
 								else
 								{
 									printf("On hook\n");
+									ChangeCodecState(CODEC_SET_USER_ADC, ADC_MUTE);
+									ChangeCodecState(CODEC_SET_USER_DAC, DAC_MUTE);
+									GoOnhook();
 								}
                             }
                             break;
@@ -519,11 +540,11 @@ void *GPIOKeysPolled(void *arg)
                             break;
                         }
                     }
-                    else
+                    /*else
                     {
                     	printf("Other kind of type polled: %d, code: %d, value: %d\n",
                     			ev[yalv].type, ev[yalv].code, ev[yalv].value);
-                    }
+                    }*/
                 }
             }
         }

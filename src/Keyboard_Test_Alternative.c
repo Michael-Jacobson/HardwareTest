@@ -20,6 +20,7 @@
 #include <sys/time.h>
 #include "C674xTypes.h"
 #include "Ultratec_Enums.h"
+#include "Codec.h"
 
 extern int GPIO_Dev_fd;
 
@@ -29,12 +30,25 @@ char GPIO_keyboard_keepGoing = 1;
 
 pthread_t GPIOKeyboardThread = 0;
 
+extern int POTS_Sample_Rx_Index;
+extern int HS_Sample_Rx_Index;
+extern int POTS_Sample_Tx_Index;
+extern int HS_Sample_Tx_Index;
+
+extern int RxGoodCount;
+extern int RxBadCount;
+extern int TxGoodCount;
+extern int TxBadCount;
+extern int AveragesTX[2];
+extern int AveragesRX[2];
+
 void InitGPIOKeyboard(void);
 void CloseGPIOKeyboard(void);
 void *GPIOKeyboard(void *arg);
 
 void PerformKeyboardScan(void);
 int DecodeKeypress(int column, struct gpiohandle_data data);
+void SelectSpeakerphone(void);
 
 /**********************************************************************
  *
@@ -226,6 +240,7 @@ void PerformKeyboardScan(void)
 							case BUT_SPKRPHN:
 								//
 								printf("Speakerphone Button\n");
+								SelectSpeakerphone();
 							break;
 
 							case BUT_MUTE:
@@ -241,11 +256,25 @@ void PerformKeyboardScan(void)
 							case BUT_VOLDN:
 								//
 								printf("Volume Down Button\n");
+
+								printf("**Reversing POTS and HS Rx Channels\n");
+
+								printf("**From: POTS: %d\nHandset: %d\n\n", POTS_Sample_Rx_Index, HS_Sample_Rx_Index);
+								POTS_Sample_Rx_Index = !POTS_Sample_Rx_Index;
+								HS_Sample_Rx_Index = !HS_Sample_Rx_Index;
+								printf("**To: POTS: %d\nHandset: %d\n\n", POTS_Sample_Rx_Index, HS_Sample_Rx_Index);
 							break;
 
 							case BUT_VOLUP:
 								//
 								printf("Volume Up Button\n");
+
+								printf("**Reversing POTS and HS Tx Channels\n");
+
+								printf("**From: POTS: %d\nHandset: %d\n\n", POTS_Sample_Tx_Index, HS_Sample_Tx_Index);
+								POTS_Sample_Tx_Index = !POTS_Sample_Tx_Index;
+								HS_Sample_Tx_Index = !HS_Sample_Tx_Index;
+								printf("**To: POTS: %d\nHandset: %d\n\n", POTS_Sample_Tx_Index, HS_Sample_Tx_Index);
 							break;
 
 							case BUT_CSTMR_SRVC:
@@ -256,6 +285,9 @@ void PerformKeyboardScan(void)
 							case BUT_HOME:
 								//
 								printf("Home Button\n");
+								printf("**Average POTS Tx:%d\n**Average Handset Tx:%d\n\n**Average POTS Rx:%d\n**Average Handset Rx:%d\n",
+															AveragesTX[PHONELINE], AveragesTX[HANDSET],
+															AveragesRX[PHONELINE], AveragesRX[HANDSET]);
 							break;
 
 									  /* Special "DTMF" keys */

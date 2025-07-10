@@ -192,13 +192,11 @@ int main(void)
 				{
 					printf("**Selecting Handset\n");
 					SelectHandset();
-					AEC_En = 0;
 				}
 				else if(strstr(RxString, "Speaker") != 0)
 				{
 					printf("**Selecting Speakerphone\n");
 					SelectSpeakerphone();
-					AEC_En = 1;
 				}
 				else if(strstr(RxString, "set time") != 0)
 				{
@@ -213,20 +211,26 @@ int main(void)
 				else if(strstr(RxString, "averages") != 0)
 				{
 					printf("**Average POTS Tx:%d\n**Average Handset Tx:%d\n\n**Average POTS Rx:%d\n**Average Handset Rx:%d\n",
-							AveragesTX[POTS_Sample_Tx_Index], AveragesTX[HS_Sample_Tx_Index],
-							AveragesRX[POTS_Sample_Rx_Index], AveragesRX[HS_Sample_Rx_Index]);
+							AveragesTX[PHONELINE], AveragesTX[HANDSET],
+							AveragesRX[PHONELINE], AveragesRX[HANDSET]);
 				}
 				else if(strstr(RxString, "Reverse Rx") != 0)
 				{
 					printf("**Reversing POTS and HS Rx Channels\n");
-					POTS_Sample_Tx_Index = !POTS_Sample_Tx_Index;
-					HS_Sample_Tx_Index = !HS_Sample_Tx_Index;
+
+					printf("**From: POTS: %d\nHandset: %d\n\n", POTS_Sample_Rx_Index, HS_Sample_Rx_Index);
+					POTS_Sample_Rx_Index = !POTS_Sample_Rx_Index;
+					HS_Sample_Rx_Index = !HS_Sample_Rx_Index;
+					printf("**To: POTS: %d\nHandset: %d\n\n", POTS_Sample_Rx_Index, HS_Sample_Rx_Index);
 				}
 				else if(strstr(RxString, "Reverse Tx") != 0)
 				{
 					printf("**Reversing POTS and HS Tx Channels\n");
-					POTS_Sample_Rx_Index = !POTS_Sample_Rx_Index;
+
+					printf("**From: POTS: %d\nHandset: %d\n\n", POTS_Sample_Tx_Index, HS_Sample_Tx_Index);
+					POTS_Sample_Tx_Index = !POTS_Sample_Tx_Index;
 					HS_Sample_Tx_Index = !HS_Sample_Tx_Index;
+					printf("**To: POTS: %d\nHandset: %d\n\n", POTS_Sample_Tx_Index, HS_Sample_Tx_Index);
 				}
 				else if(strstr(RxString, "WiFi Scan") != 0)
 				{
