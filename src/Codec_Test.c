@@ -63,6 +63,8 @@ BOOL CodecInProcess = TRUE;
 
 CodecControlStates_t CodecControlState = CODEC_INIT;
 
+extern BOOL RxRunning;
+
 void InitSoundDrivers(void);
 void CloseSoundDrivers(void);
 
@@ -101,7 +103,13 @@ void *CodecControl(void *arg)
 	//audio - launches threads
 	printf("Init Sound\n");
 	InitSoundDrivers(); //sound has to be started first. it sets codec values that we have to change after it starts
-	sleep(1);
+
+	while(!RxRunning)
+	{
+		usleep(10);
+	}
+
+	usleep(100);
 
 	while(CodecControlThread_KeepGoing)
     {
