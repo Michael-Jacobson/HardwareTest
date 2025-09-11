@@ -26,7 +26,7 @@
 #include "Ultratec_Enums.h"
 #include "Codec.h"
 
-#define BUFF_SIZE 4096
+#define BUFF_SIZE 			4096
 
 #define NUM_OF_CHANNELS     2
 #define BYTES_PER_CHANNEL   2
@@ -39,7 +39,7 @@
 
 #define BUFFER_FRAME_SIZE	80
 
-#define AUDIO_LATENCY			50000
+#define AUDIO_LATENCY		50000
 
 
 
@@ -278,14 +278,14 @@ int SetupAudioParams(snd_pcm_t **handle, snd_pcm_stream_t playback_capture)
 	}
 
 
-	/*if( (err = snd_pcm_hw_params_set_buffer_time_near (*handle, hw_params, &BufferTime, &dir)) < 0)
+	if( (err = snd_pcm_hw_params_set_buffer_time_near (*handle, hw_params, &BufferTime, &dir)) < 0)
 	{
 		fprintf (stderr, "cannot set %s buffer time near (%s)\n", type, snd_strerror (err));
 	}
 	if(BufferTime != AUDIO_LATENCY)
 	{
 		printf("The %s Buffer time is not Supported. using %d instead\n", type, BufferTime);
-	}*/
+	}
 
 	/* Apply HW parameter settings to PCM device and prepare device. */
 	if ((err = snd_pcm_hw_params (*handle, hw_params)) < 0)
@@ -294,9 +294,7 @@ int SetupAudioParams(snd_pcm_t **handle, snd_pcm_stream_t playback_capture)
 		exit (1);
 	}
 
-	printf("About to free params\n");
 	snd_pcm_hw_params_free(hw_params);
-	printf("params free\n");
 
 	return 1;
 }
@@ -315,30 +313,7 @@ int SetupAudioParams(snd_pcm_t **handle, snd_pcm_stream_t playback_capture)
  ********************************************************************************************************************************/
 void *ReadAudioSamples(void *arg)
 {
-    //BOOL KeepGoing = TRUE;
 	int err = 0;
-
-    /*
-	 * we need playback to start before
-	 * the capture because the ssi renesas patch says it needs to. we also need to start them at the same time
-	 * or else the interleaved samples where we assume odd samples are path1, even samples are path2 for both
-	 * rx and tx won't be true. it will be random and sometimes it will work out and sometimes it will be
-	 * opposite
-	 */
-	/*while(!TxRunning)
-	{
-		usleep(1);
-	}
-
-	//usleep(10000);
-*/
-
-
-
-
-    //snd_pcm_start(capture_handle);
-
-	printf("starting capture\n");
 
     /***************************************************************************************************************/
     /***************************************************************************************************************/
