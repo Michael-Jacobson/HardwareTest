@@ -34,8 +34,7 @@
 #define FRAMES_IN_PERIOD    80
 #define NUM_PERIODS         1
 #define PERIOD_LEN          (FRAMES_IN_PERIOD*NUM_PERIODS)
-#define AUDIO_READ_WRITE_LEN  (BYTES_IN_FRAME*FRAMES_IN_PERIOD*NUM_PERIODS)
-#define PCM_WAIT_TIME		(10*NUM_PERIODS+2)
+#define PCM_WAIT_TIME		(2*NUM_PERIODS+2)
 
 #define BUFFER_FRAME_SIZE	80
 
@@ -113,6 +112,9 @@ void InitSoundDrivers(void)
 	SetupAudioParams(&playback_handle, SND_PCM_STREAM_PLAYBACK);
 	SetupAudioParams(&capture_handle, SND_PCM_STREAM_CAPTURE);
 	snd_pcm_link(playback_handle, capture_handle);
+
+	snd_pcm_start(playback_handle);
+	snd_pcm_start(capture_handle);
 
 	if(pthread_create( &RxAudioProcessingThread, NULL, ProcessRxAudioSamples, NULL ) == 0)
 	{
@@ -194,8 +196,8 @@ int SetupAudioParams(snd_pcm_t **handle, snd_pcm_stream_t playback_capture)
 
 	/* Name of the PCM device, like hw:0,0 */
 	/* The first number is the number of the soundcard, the second number is the number of the device. */
-	//static char *device = "hw:0,0"; /* capture device */
-	static char *device = "default"; /* capture device */
+	//static char *device = "hw:0,0"; /* device */
+	static char *device = "default"; /* device */
 	char type[3];
 
 	memset(type, 0, sizeof(type));
@@ -215,8 +217,6 @@ int SetupAudioParams(snd_pcm_t **handle, snd_pcm_stream_t playback_capture)
 		fprintf (stderr, "cannot open %s audio device (%s)\n", type, snd_strerror (err));
 		exit (1);
 	}
-
-	memset(Rxbuf,0,sizeof(Rxbuf));
 
 	/* Allocate the snd_pcm_hw_params_t structure on the stack. */
 	if ((err = snd_pcm_hw_params_malloc (&hw_params)) < 0)
@@ -315,6 +315,8 @@ void *ReadAudioSamples(void *arg)
 {
 	int err = 0;
 
+	memset(Rxbuf,0,sizeof(Rxbuf));
+
     /***************************************************************************************************************/
     /***************************************************************************************************************/
     /***************************************************************************************************************/
@@ -326,7 +328,7 @@ void *ReadAudioSamples(void *arg)
     /***************************************************************************************************************/
     while(AudioRxThread_KeepGoing)
     {
-        if(snd_pcm_wait(capture_handle, PCM_WAIT_TIME) >= 0)
+        if(snd_pcm_wait(capture_handle, PCM_WAIT_TIME) >= 1)
         {
 			/* Read data into the buffer. */
 			if ((err = snd_pcm_readi (capture_handle, Rxbuf, PERIOD_LEN)) != PERIOD_LEN)
@@ -394,19 +396,9 @@ void *ReadAudioSamples(void *arg)
  ********************************************************************************************************************************/
 void *WriteAudioSamples(void *arg)
 {
-    //BOOL KeepGoing = TRUE;
 	int err = 0;
 
-    /*while(!RxRunning)
-	{
-		usleep(1);
-	}
-
-	usleep(10000);*/
-
-    //snd_pcm_start(playback_handle);
-
-	printf("starting playback\n");
+	memset(Txbuf,0,sizeof(Txbuf));
 
     /***************************************************************************************************************/
     /***************************************************************************************************************/
@@ -419,7 +411,7 @@ void *WriteAudioSamples(void *arg)
     /***************************************************************************************************************/
     while(AudioTxThread_KeepGoing)
     {
-        if(snd_pcm_wait(playback_handle, PCM_WAIT_TIME) == 1)
+        if(snd_pcm_wait(playback_handle, PCM_WAIT_TIME) >= 1)
         {
 			/* Write some junk data to produce sound. */
 			if ((err = snd_pcm_writei (playback_handle, Txbuf, PERIOD_LEN)) != PERIOD_LEN)
@@ -449,7 +441,6 @@ void *WriteAudioSamples(void *arg)
 			{
 				if(TxAudioProcessingThread != 0)
 				{
-					//snd_pcm_start(capture_handle);
 					TxRunning = TRUE;
 					TxGoodCount++;
 					sem_post(&AudioTxSem);
@@ -463,7 +454,6 @@ void *WriteAudioSamples(void *arg)
     }
 
     TxRunning = FALSE;
-    //snd_pcm_drain(playback_handle);
 	snd_pcm_close (playback_handle);
 
 
