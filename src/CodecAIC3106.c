@@ -344,6 +344,261 @@ BOOL InitCodecAIC3106(void)
     if (WriteToCodecReg(0, 0, TRUE, CODEC_REG_READ_DEFAULT_MASK))
     {
 #if 0
+    	//**********************************************************************************
+		//Linux only - drivers don't turn off all inputs so do it now   ********************
+		WriteData = CODEC_PAGE0_REG17_MIC3L_OFF_LEFT_ADC | CODEC_PAGE0_REG17_MIC3R_OFF_LEFT_ADC;
+		if (WriteToCodecReg(17, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = CODEC_PAGE0_REG18_MIC3L_OFF_RIGHT_ADC | CODEC_PAGE0_REG18_MIC3R_OFF_RIGHT_ADC;
+		if (WriteToCodecReg(18, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = CODEC_PAGE0_REG20_LINE2L_OFF_LEFT_ADC;
+		if (WriteToCodecReg(20, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = CODEC_PAGE0_REG21_LINE1R_OFF_LEFT_ADC;
+		if (WriteToCodecReg(21, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(45, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(46, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(47, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(48, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(49, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(50, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(52, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(53, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(54, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(55, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(56, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(57, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(59, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(60, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(61, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(62, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(63, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(64, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(66, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(67, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(68, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(69, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(70, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(71, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(73, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(74, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(75, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(76, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(77, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(80, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(83, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(84, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(85, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(87, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(88, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(90, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(91, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+
+		WriteData = 0;
+		if (WriteToCodecReg(92, WriteData, TRUE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
+		{
+			pass = FALSE;
+		}
+#endif
+#if 0
     	//do a reset to start
     	WriteData = CODEC_PAGE0_REG1_RESET;
 		if (WriteToCodecReg(1, WriteData, FALSE, CODEC_REG_READ_DEFAULT_MASK) == FALSE)
