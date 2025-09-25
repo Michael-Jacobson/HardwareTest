@@ -10,16 +10,20 @@
 #include <string.h>
 #include <fcntl.h>
 #include <errno.h>
-//#include <wpa_ctrl.h>
+#include <time.h>
+#include <glib-2.0/glib.h>
+#include <libnm/NetworkManager.h>
+#include "WiFiChannelDef.h"
 
-#define WPA_SUPPLICANT_INIT_COMMAND             "systemctl enable wpa_supplicant-nl80211@wlan0.service"
+#define WLAN0_IFCONFIG_UP						"ifconfig wlan0 up"
+#define WPA_SUPPLICANT_INIT_COMMAND             "systemctl restart wpa_supplicant"
 #define WIFI_SSID_STR_LEN                    	100U
 #define WIFI_PASSWORD_STR_LEN                	100U
 #define WIFI_IP_ADDR_STR_LEN           			16U                        /* 000.000.000.000 + NULL */
 #define WIFI_PORT_STR_LEN              			6U                         /* 5 characters + NULL (0 to 65535) */
 #define WIFI_MAC_ADDR_STR_LEN             		18U
 #define WIFI_CHANNEL_STR_LEN           			3U                         /* 2 characters + NULL (1 to 14) */
-#define WIFI_LIST_SIZE                          10U
+#define WIFI_LIST_SIZE                          50U
 #define INVALID_NET_ID                          0xFF
 #define WIFI_SCAN_COMMAND                       "SCAN"
 #define WIFI_SCAN_RESULTS_COMMAND               "SCAN_RESULTS"
@@ -30,7 +34,8 @@ typedef enum
    WIFI_SECURITY_OPEN,
    WIFI_SECURITY_WEP,
    WIFI_SECURITY_WPA,
-   WIFI_SECURITY_WPA2
+   WIFI_SECURITY_WPA2,
+   WIFI_SECURITY_WPA3
 } WiFiSecurityType_t;
 
 typedef enum
@@ -47,7 +52,8 @@ typedef struct
    char SSIDName[WIFI_SSID_STR_LEN];
    char PassCode[WIFI_PASSWORD_STR_LEN];
    char MACAddr[WIFI_MAC_ADDR_STR_LEN+1];
-   WiFiSecurityType_t SecurityType;
+   //WiFiSecurityType_t SecurityType;
+   char SecurityType[16];
    char RecentlyUsed;
    short net_id;
    short Extra2;
@@ -81,21 +87,22 @@ typedef struct
 } WiFiParams_t;
 
 
-
 wifi_network_list_t g_wifi_scan_list;
 
-struct wpa_ctrl *p_wpa_ctrl_send;
-struct wpa_ctrl *p_wpa_ctrl_receive;
+NMClient *p_client;
+GError *p_error = NULL;
+NMDevice *p_dev = NULL;
+NMDeviceWifi *p_wifi = NULL;
+gint64 previous_scan_time_in_ms = 0;
+GCancellable scan_cancellable;
+GMainLoop *p_global_loop;
 
 void CloseWiFi(void);
 
 static char CheckWiFiServiceStarted(void);
-static void wiFiSendCommand(char *p_command);
-static void parseWiFiScanResults(char *p_results);
-static void getWiFiNetworkSecurityType(char *ptr);
-static int ExtractString(char *p_in, char *p_out, char stop, short length);
-static void clearWifiNetworkList(wifi_network_list_t *p_netList);
-static void clearWifiNetwork(WiFiNetwork_t *p_network);
+static void GetChannelFromFreq(guint32 freq, char *p_outputString);
+
+void WiFi_Scan_CallBack(GObject *p_source_object, GAsyncResult *p_result, gpointer user_data);
 
 /*****************************************************************************
  *
@@ -105,46 +112,42 @@ char InitWiFi(void)
 	char return_val = 0;
 
 	//first check if the service is running
-	if(CheckWiFiServiceStarted())
+	if(CheckWiFiServiceStarted() == 0)
 	{
-#if 0
-		p_wpa_ctrl_send = wpa_ctrl_open("/var/run/wpa_supplicant/wlan0");
-		if (p_wpa_ctrl_send == 0)
+		p_client = nm_client_new(NULL, &p_error);
+		if (p_client == NULL)
 		{
-			printf("Wifi not available: p_wpa_ctrl_send = 0\nNo wpa_supplicant at /var/run/\n");
-			CloseWiFi();
+			g_message("Error: Could not connect to NetworkManager: %s.", p_error->message);
+			g_error_free(p_error);
+			return -1;
 		}
 		else
 		{
-			p_wpa_ctrl_receive = wpa_ctrl_open("/var/run/wpa_supplicant/wlan0");
+			p_dev = nm_client_get_device_by_iface(p_client, "wlan0");
 
-			// make sure it opened successfully
-			if (p_wpa_ctrl_receive != 0)
+			if(p_dev != NULL)
 			{
-				// try to attach so that we can receive messages
-				if (wpa_ctrl_attach(p_wpa_ctrl_receive) >= 0)
+				p_wifi = NM_DEVICE_WIFI(p_dev);
+
+				if(p_wifi != NULL)
 				{
-					//printf("WiFi Control Attached\n");
+					p_global_loop = g_main_loop_new(NULL, FALSE);
 					return_val = 1;
 				}
 				else
 				{
-					printf("Wifi not available: wpa_ctrl_attach < 0\n");
-					CloseWiFi();
+					printf("WiFi Device not found for wlan0 device\n");
 				}
 			}
 			else
 			{
-				printf("Wifi not available: p_wpa_ctrl_receive = 0\n");
-				CloseWiFi();
+				printf("device not found for wlan0\n");
 			}
 		}
-#endif
 	}
 	else
 	{
 		printf("WiFi Service not running\n");
-		CloseWiFi();
 	}
 
 	return return_val;
@@ -155,11 +158,236 @@ char InitWiFi(void)
  */
 void DoWiFiScan(void)
 {
+	char do_it_again = 0;
+
 	printf("Doing WiFi Scan\n");
 
-	wiFiSendCommand(WIFI_SCAN_COMMAND);
+	memset((void *)&g_wifi_scan_list, 0, sizeof(g_wifi_scan_list));
 
-	wiFiSendCommand(WIFI_SCAN_RESULTS_COMMAND);
+	//current_time_in_ms = nm_utils_get_timestamp_msec();
+	previous_scan_time_in_ms = nm_device_wifi_get_last_scan (p_wifi);
+
+	printf("Pre-scan last scan: %ld\n", previous_scan_time_in_ms);
+
+	do
+	{
+		//get current time stamp
+		if(previous_scan_time_in_ms > 0)
+		{
+			gint64 this_scan = 0;
+
+			printf("starting scan async\n");
+			//request scan  - returns immediately, immediately calls callback
+			nm_device_wifi_request_scan_async (p_wifi,
+											   NULL,
+											   &WiFi_Scan_CallBack,
+											   &g_wifi_scan_list);
+			printf("async scan request returned\n");
+			g_main_loop_run(p_global_loop);
+
+			this_scan = nm_device_wifi_get_last_scan (p_wifi);
+
+			if(this_scan == previous_scan_time_in_ms)
+			{
+				//we need to do this again
+				do_it_again = 1;
+				printf("trying again\n");
+			}
+			else
+			{
+				do_it_again = 0;
+			}
+		}
+	}while(do_it_again);
+
+	printf("Done Scanning\n");
+}
+
+
+
+/*****************************************************************************
+ *
+ */
+void WiFi_Scan_CallBack(GObject *p_source_object, GAsyncResult *p_result, gpointer user_data)
+{
+	gint64 this_scan_in_ms = 0;
+	int timeout = 0;
+	NMDeviceWifi *p_ThisWifi  = NM_DEVICE_WIFI(p_source_object);
+
+	printf("Callback launched\n");
+
+	if(p_wifi == p_ThisWifi)
+	{
+		printf("Correct WiFi\n");
+		do
+		{
+			//get last scan time stamp
+			//this_scan_in_ms = nm_device_wifi_get_last_scan (p_ThisWifi);
+
+			//if((this_scan_in_ms > current_time_in_ms) )
+			{
+				//if last scan timestamp greater than request time stamp we have a current one
+
+				printf("Finish scan?\n");
+				//get scan results
+				if(nm_device_wifi_request_scan_finish (p_ThisWifi, p_result, &p_error) == TRUE)
+				{
+					this_scan_in_ms = nm_device_wifi_get_last_scan (p_ThisWifi);
+					printf("Post-scan last scan: %ld\n", this_scan_in_ms);
+
+					if((this_scan_in_ms > previous_scan_time_in_ms) )
+					{
+						printf("Get APs\n");
+						const GPtrArray *p_aps = nm_device_wifi_get_access_points(p_wifi);
+
+						if (p_aps != NULL)
+						{
+							printf("getting %d Networks\n\n", p_aps->len);
+							for (guint i = 0; i < p_aps->len; i++)
+							{
+								int success = 0;
+								guint32 freq = 0;
+								guint8 power = 0;
+								printf("Array index: %d\n", i);
+								NMAccessPoint *p_ap = (NMAccessPoint *)g_ptr_array_index(p_aps, i);
+								printf("got AP%d\n", i);
+								if (p_ap != NULL)
+								{
+									//printf("Get ssid\n");
+									GBytes *p_data_bytes = nm_access_point_get_ssid(p_ap);
+									if (p_data_bytes != NULL)
+									{
+										char *p_ssid_str = nm_utils_ssid_to_utf8(g_bytes_get_data(p_data_bytes, NULL), g_bytes_get_size(p_data_bytes));
+										if(p_ssid_str != NULL)
+										{
+											strcpy(g_wifi_scan_list.network[i].Header.SSIDName, p_ssid_str);
+											success++;
+											g_free(p_ssid_str);
+										}
+										//g_bytes_unref(p_data_bytes); do not do this. it will release the memory for the AP, not some string, so a second scan will crash
+									}
+									else
+									{
+										strcpy(g_wifi_scan_list.network[i].Header.SSIDName, "#########");
+										success++;
+										//printf("Fail SSID\n");
+									}
+
+
+									//printf("Get bssid\n");
+									const char *p_bssid_bytes = nm_access_point_get_bssid(p_ap);
+									if (p_bssid_bytes != NULL)
+									{
+										strcpy(g_wifi_scan_list.network[i].BSSID, p_bssid_bytes);
+										success++;
+									}
+									else
+									{
+										printf("Fail BSSID\n");
+									}
+
+									//printf("Get strength\n");
+									power = nm_access_point_get_strength(p_ap); //% of strnegth 0-100
+									if (power != 0)
+									{
+										g_wifi_scan_list.network[i].Power = power;
+										success++;
+									}
+									else
+									{
+										printf("Fail Strength\n");
+									}
+
+									//printf("Get flags\n");
+									NM80211ApSecurityFlags wpa_flags = nm_access_point_get_wpa_flags(p_ap);
+									NM80211ApSecurityFlags rsn_flags = nm_access_point_get_rsn_flags(p_ap);
+
+									if (wpa_flags & NM_802_11_AP_SEC_KEY_MGMT_PSK || rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_PSK)
+									{
+										strcpy(g_wifi_scan_list.network[i].Header.SecurityType, "WPA-PSK");
+										success++;
+									}
+									else if (wpa_flags & NM_802_11_AP_SEC_KEY_MGMT_802_1X || rsn_flags & NM_802_11_AP_SEC_KEY_MGMT_802_1X)
+									{
+										strcpy(g_wifi_scan_list.network[i].Header.SecurityType, "WPA-Enterprise");
+										success++;
+									}
+									else if (wpa_flags == 0 && rsn_flags == 0)
+									{
+										strcpy(g_wifi_scan_list.network[i].Header.SecurityType, "None");
+										success++;
+									}
+									else
+									{
+										strcpy(g_wifi_scan_list.network[i].Header.SecurityType, "Unknown");
+										success++;
+									}
+
+									//printf("get freq\n");
+									freq = nm_access_point_get_frequency(p_ap);
+									if(freq > 0)
+									{
+										GetChannelFromFreq(freq, g_wifi_scan_list.network[i].Channel);
+										success++;
+									}
+									else
+									{
+										printf("Fail Freq\n");
+									}
+
+									if(success == 5)
+									{
+										printf("AP%d: SSID: %s, BSSID: %s, Strength: %d, Channel: %s, Security: %s\n",
+												i,
+												g_wifi_scan_list.network[i].Header.SSIDName,
+												g_wifi_scan_list.network[i].BSSID,
+												g_wifi_scan_list.network[i].Power,
+												g_wifi_scan_list.network[i].Channel,
+												g_wifi_scan_list.network[i].Header.SecurityType);
+									}
+								}
+								else
+								{
+									printf("Array index returned NULL\n");
+								}
+							}
+
+							break;
+						}
+						else
+						{
+							printf("could not get APs\n");
+						}
+					}
+					else
+					{
+						printf("Not a new scan, sleeping\n");
+						sleep(4);
+						nm_device_wifi_request_scan_async(p_ThisWifi, NULL, WiFi_Scan_CallBack, user_data);
+					}
+				}
+				else
+				{
+					printf("failed scan finish\n");
+				}
+
+				break;
+			}
+
+			timeout += 100;
+
+			usleep(100*1000);
+		} while(timeout < 15*1000); //15s timeout
+	}
+	else
+	{
+		printf("wifi or user data do not match\n");
+	}
+
+	printf("Callback done\n");
+
+	g_main_loop_quit(p_global_loop);
+
 }
 
 /*****************************************************************************
@@ -167,18 +395,8 @@ void DoWiFiScan(void)
  */
 void CloseWiFi(void)
 {
-#if 0
-	if(p_wpa_ctrl_send != 0)
-	{
-		wpa_ctrl_close(p_wpa_ctrl_send);
-	}
-
-	if(p_wpa_ctrl_receive != 0)
-	{
-		wpa_ctrl_detach(p_wpa_ctrl_receive);
-		wpa_ctrl_close(p_wpa_ctrl_receive);
-	}
-#endif
+	g_main_loop_unref(p_global_loop);
+	g_object_unref(p_client);
 }
 
 /*******************************************************************************************************************************
@@ -190,7 +408,7 @@ void CloseWiFi(void)
  *      - none
  *
  * Returns:
- *      - TRUE is initialized, FALSE otherwise
+ *      - 0 is initialized, 0 < otherwise
  *
  * Notes:
  *
@@ -200,319 +418,103 @@ static char CheckWiFiServiceStarted(void)
     FILE *fp;
     char command[100];
     char buf[100];
-    char retVal = 0;
+    char retVal = 2;
 
     memset(command, 0, sizeof(command));
-    snprintf(command, sizeof(command), "systemctl status wpa_supplicant-nl80211@wlan0 | grep 'active (running)'");
+    snprintf(command, sizeof(command), "systemctl status wpa_supplicant | grep 'active (running)'");
 
-    // run the command and save the output to a file
-    if ((fp = popen(command, "r")) == 0)
+    while(retVal > 0)
     {
-        printf("Error opening pipe!\n");
-    }
-    else
-    {
-        // go through file line by line to parse scan command output
-        while (fgets(buf, sizeof(buf), fp) != 0)
-        {
-            if (strstr(buf, "active (running) since"))
-            {
-                // Platform Manager is up and running
-            	//printf("systemd wpa_supplcant service running\n");
-                retVal = 1;
-                break;
-            }
-            else
-            {
-            	printf("wpa_supplicant-nl80211@wlan0 is not running\n");
-            }
-        }
+		// run the command and save the output to a file
+		if ((fp = popen(command, "r")) == 0)
+		{
+			printf("Error opening pipe!\n");
+		}
+		else
+		{
+			// go through file line by line to parse scan command output
+			while (fgets(buf, sizeof(buf), fp) != 0)
+			{
+				if (strstr(buf, "active (running) since"))
+				{
+					// Platform Manager is up and running
+					//printf("systemd wpa_supplcant service running\n");
+					retVal = 0;
+					break;
+				}
+				else if(retVal == 2)
+				{
+					printf("wpa_supplicant is not running\n");
+					retVal--;
 
-        if (pclose(fp) == -1)
-        {
-            printf("Error closing pipe!\n");
-        }
+					system(WLAN0_IFCONFIG_UP);
+					system(WPA_SUPPLICANT_INIT_COMMAND);
+				}
+				else
+				{
+					retVal = -1;
+				}
+			}
+
+			if (pclose(fp) == -1)
+			{
+				printf("Error closing pipe!\n");
+			}
+		}
     }
 
     return retVal;
 }
 
-/*******************************************************************************************************************************
- * static WiFiControlStates_t wiFiSendCommand(char *command)
+/********************************************************************************************************************
  *
- *  send a command to the WiFi module through the wpa_supplicant control interface
- *
- * Parameters:
- *      - command:
- *
- * Returns:
- *      - the next state for the WiFi state machine
- *
- * Notes:
- *
- *******************************************************************************************************************************/
-static void wiFiSendCommand(char *p_command)
+ ********************************************************************************************************************/
+static void GetChannelFromFreq(guint32 freq, char *p_outputString)
 {
-    char response[4096];
-    size_t response_len = sizeof(response);
-
-    memset(response, 0, response_len);
-#if 0
-    wpa_ctrl_request(p_wpa_ctrl_send, p_command, strlen(p_command), response, &response_len, 0);
-#endif
-    // save the scan results
-	if (!strncmp(p_command, WIFI_SCAN_RESULTS_COMMAND, strlen(WIFI_SCAN_RESULTS_COMMAND)))
-	{
-		parseWiFiScanResults(response);
-	}
-}
-
-/*******************************************************************************************************************************
- * static void parseWiFiScanResults(char *results)
- *
- *  parse through the scan results that were sent to us by wpa_supplicant and store the relevant data in the scan
- *  list structure
- *
- * Parameters:
- *      - results: results passed to use by wpa_supplicant
- *
- * Returns:
- *      - none
- *
- * Notes:
- *
- *******************************************************************************************************************************/
-static void parseWiFiScanResults(char *p_results)
-{
-    char *ptr;
-    char signalStrength[5];
-    int length = 0;
-
-    clearWifiNetworkList((wifi_network_list_t *)&g_wifi_scan_list);
-    g_wifi_scan_list.length = 0;
-
-    ptr = p_results;
-
-    // get past the first line which doesn't have any useful info yet
-    length = ExtractString(ptr, 0, '\n', 0);
-    ptr += (length + 1);
-
-    // go through the scan results and store the useful info in the scan list
-    while (*ptr != '\0')
-    {
-        if (g_wifi_scan_list.length < WIFI_LIST_SIZE)
-        {
-            // the different sections are separated by tabs - the first section is the MAC address
-            length = ExtractString(ptr, (char *)&g_wifi_scan_list.network[g_wifi_scan_list.length],
-                                   '\t', WIFI_MAC_ADDR_STR_LEN);
-
-            // we don't care about the next section
-            ptr += (length + 1);
-            length = ExtractString(ptr, 0, '\t', 0);
-
-            // add length +2 so that we skip over the negative sign - storing signal strength as unsigned number
-            ptr += (length + 2);
-
-            // store the signal strength
-            memset(signalStrength, 0, sizeof(signalStrength));
-            length = ExtractString(ptr, signalStrength, '\t', sizeof(signalStrength));
-            g_wifi_scan_list.network[g_wifi_scan_list.length].Power = atoi(signalStrength);
-
-            ptr += (length + 1);
-
-            // store the security type
-            getWiFiNetworkSecurityType(ptr);
-
-            // store the SSID
-            length = ExtractString(ptr, 0, '\t', 0);
-            ptr += (length + 1);
-            length = ExtractString(ptr, (char *)g_wifi_scan_list.network[g_wifi_scan_list.length].Header.SSIDName,
-                                   '\n', WIFI_SSID_STR_LEN);
-            ptr += (length + 1);
-
-            g_wifi_scan_list.length++;
-        }
-        else
-        {
-            break;
-        }
-    }
-
-    printf("WiFi Scan Complete\n");
-
-	printf("\n");
-
-	// print the results
+	unsigned char Channel = 0;
 	int i = 0;
-	for (i = 0; i < g_wifi_scan_list.length; i++)
-	{
-		printf("%s\t[%d]", g_wifi_scan_list.network[i].Header.SSIDName, g_wifi_scan_list.network[i].Power);
 
-		switch (g_wifi_scan_list.network[i].Header.SecurityType)
+	/*
+	 * according to this page:https://en.wikipedia.org/wiki/List_of_WLAN_channels
+	 * i am looking for the Fundamental frequency for the channels. i understand the
+	 * channels are a range, so if it deviates from the fundamental freq then i have to
+	 * start looking inside the ranges
+	 */
+	while(WiFiChannelDef[i].FundFreq != 0)
+	{
+		if(freq == WiFiChannelDef[i].FundFreq)
 		{
-		case WIFI_SECURITY_WPA2:
-			printf("\t[WPA2]\n");
+			Channel = WiFiChannelDef[i].Channel;
 			break;
-		case WIFI_SECURITY_WPA:
-			printf("\t[WPA]\n");
-			break;
-		case WIFI_SECURITY_WEP:
-			printf("\t[WEP]\n");
-			break;
-		case WIFI_SECURITY_OPEN:
-			printf("\t[OPEN]\n");
-			break;
-		case WIFI_SECURITY_INVALID:
-		default:
-			break;
+		}
+
+		i++;
+	}
+
+	if(Channel == 0)
+	{
+		//we did not find a fundamental freq, so go looking in the ranges
+		i = 0;
+		while(WiFiChannelDef[i].FreqRange_Lo != 0)
+		{
+			if((freq >= WiFiChannelDef[i].FreqRange_Lo) && (freq <= WiFiChannelDef[i].FreqRange_Hi))
+			{
+				Channel = WiFiChannelDef[i].Channel;
+				break;
+			}
+
+			i++;
 		}
 	}
 
+	if(Channel == 0)
+	{
+		//we still find the channel?
+		p_outputString[0] = '?';
+	}
+	else
+	{
+		sprintf(p_outputString, "%d", Channel);
+	}
 }
 
-
-/*******************************************************************************************************************************
- * static void getWiFiNetworkSecurityType(char *ptr)
- *
- *  store the security type for the current network in the scan list
- *
- * Parameters:
- *      - ptr:
- *
- * Returns:
- *      - none
- *
- * Notes:
- *
- *******************************************************************************************************************************/
-static void getWiFiNetworkSecurityType(char *ptr)
-{
-    char securityData[100];
-
-    memset(securityData, 0, sizeof(securityData));
-    ExtractString(ptr, securityData, '\t', sizeof(securityData));
-
-    if (strstr(securityData, "WPA2-PSK"))
-    {
-        g_wifi_scan_list.network[g_wifi_scan_list.length].Header.SecurityType = WIFI_SECURITY_WPA2;
-    }
-    else if (strstr(securityData, "WPA-PSK"))
-    {
-        g_wifi_scan_list.network[g_wifi_scan_list.length].Header.SecurityType = WIFI_SECURITY_WPA;
-    }
-    else if (strstr(securityData, "WEP"))
-    {
-        g_wifi_scan_list.network[g_wifi_scan_list.length].Header.SecurityType = WIFI_SECURITY_WEP;
-    }
-    else
-    {
-        g_wifi_scan_list.network[g_wifi_scan_list.length].Header.SecurityType = WIFI_SECURITY_OPEN;
-    }
-}
-
-/*******************************************************************************************************************************
- * void ExtractString(char *in, char *out, char stop, U16 length)
- *
- *  Certain responses that we receive have information that we need inside of them. This method is used to get rid of the
- *  rest of the command and just return the useful information that we need
- *
- * Parameters:
- *      -in: the command that contains the information inside it
- *      -out: the buffer to place the output information
- *      -stop: the char that signals the end of the string that we're looking for
- *      -length of the output buffer
- *
- * Returns:
- *      - the length of the output string
- *
- * Notes:
- *      - you can pass in NULL for the output string in order to get the amount of characters between the start of the
- *        string and the stop character
- *
- ******************************************************************************************************************************/
-static int ExtractString(char *p_in, char *p_out, char stop, short length)
-{
-    short in_index = 0;
-    short out_index = 0;
-
-    while (p_in[in_index] != stop)
-    {
-        if (p_out != 0)
-        {
-            if (in_index < length)
-            {
-                p_out[out_index++] = p_in[in_index++];
-            }
-            else
-            {
-                // make sure there is a null terminator
-                p_out[out_index] = 0;
-                break;
-            }
-        }
-        else
-        {
-            // just in case...
-            if (in_index > 200)
-                break;
-
-            in_index++;
-            out_index++;
-        }
-    }
-
-    return out_index;
-}
-
-
-/*******************************************************************************************************************************
- * void clearWifiNetworkList(wifi_network_list_t *p_netList)
- *
- * clear a WiFinetwork list structure
- *
- * Parameters:
- *      - *p_netList: pointer to the list that needs to be cleared
- *
- * Returns:
- *      - none
- *
- * Notes:
- *
- *******************************************************************************************************************************/
-static void clearWifiNetworkList(wifi_network_list_t *p_netList)
-{
-    int i;
-
-    for (i = 0; i < WIFI_LIST_SIZE; i++)
-    {
-        clearWifiNetwork((WiFiNetwork_t *)&p_netList->network[i]);
-    }
-
-    p_netList->length = 0;
-}
-
-/*******************************************************************************************************************************
- * void clearWifiNetwork(WiFiNetwork_t *p_network)
- *
- *  clears the specified WiFinetwork
- *
- * Parameters:
- *      - p_network: the network to clear
- *
- * Returns:
- *      - none
- *
- * Notes:
- *      This function is necessary because the net_id of WiFiNetwork_t structures should default to INVALID_NET_ID (0xFF),
- *      and not 0
- *
- *******************************************************************************************************************************/
-static void clearWifiNetwork(WiFiNetwork_t *p_network)
-{
-    if (p_network != 0)
-    {
-        memset(p_network, 0, sizeof(WiFiNetwork_t));
-        p_network->Header.net_id = INVALID_NET_ID;
-        p_network->Index = -1;
-    }
-}

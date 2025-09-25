@@ -32,7 +32,7 @@ BUILD_ARTIFACT := $(BUILD_ARTIFACT_PREFIX)$(BUILD_ARTIFACT_NAME)$(if $(BUILD_ART
 
 # All Target
 all:
-	+@$(MAKE) --no-print-directory main-build && $(MAKE) --no-print-directory post-build
+	+@$(MAKE) --no-print-directory pre-build && $(MAKE) --no-print-directory main-build && $(MAKE) --no-print-directory post-build
 
 # Main-build Target
 main-build: HardwareTest
@@ -41,7 +41,7 @@ main-build: HardwareTest
 HardwareTest: $(OBJS) $(USER_OBJS) makefile $(OPTIONAL_TOOL_DEPS)
 	@echo 'Building target: $@'
 	@echo 'Invoking: Cross GCC Linker'
-	aarch64-poky-linux-gcc --sysroot=/opt/poky/3.1.33/sysroots/aarch64-poky-linux -o "HardwareTest" $(OBJS) $(USER_OBJS) $(LIBS) -lpthread -lasound
+	aarch64-poky-linux-gcc --sysroot=/opt/poky/5.0.8/sysroots/cortexa55-poky-linux -o "HardwareTest" $(OBJS) $(USER_OBJS) $(LIBS) -lpthread -lasound -lglib-2.0 -lgobject-2.0 -lnm
 	@echo 'Finished building target: $@'
 	@echo ' '
 
@@ -50,11 +50,15 @@ clean:
 	-$(RM) HardwareTest
 	-@echo ' '
 
-post-build:
-	-@echo 'Copy To Target'
-	-scp -o HostKeyAlgorithms=ssh-rsa HardwareTest root@192.168.44.202:/home/root
+pre-build:
+	-pkg-config --cflags glib-2.0
 	-@echo ' '
 
-.PHONY: all clean dependents main-build post-build
+post-build:
+	-@echo 'Copy To Target'
+	-scp -o HostKeyAlgorithms=ssh-rsa HardwareTest root@192.168.44.226:/home/root
+	-@echo ' '
+
+.PHONY: all clean dependents main-build pre-build post-build
 
 -include ../makefile.targets
