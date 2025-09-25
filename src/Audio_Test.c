@@ -461,7 +461,7 @@ void *WriteAudioSamples(void *arg)
 }
 
 #include "Codec.h"
-CodecControlStates_t CodecControlState;
+extern CodecControlStates_t CodecControlState;
 /********************************************************************************************************************************
  *  void function(void)
  *
