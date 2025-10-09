@@ -77,6 +77,8 @@ void CloseTouch(void);
 char InitWiFi(void);
 void DoWiFiScan(void);
 void CloseWiFi(void);
+void ConnectToWiFiNetwork(int index);
+void SetPasswordForWiFiNetwork(int index, char *p_password);
 
 int main(void)
 {
@@ -232,10 +234,52 @@ int main(void)
 					HS_Sample_Tx_Index = !HS_Sample_Tx_Index;
 					printf("**To: POTS: %d\nHandset: %d\n\n", POTS_Sample_Tx_Index, HS_Sample_Tx_Index);
 				}
-				else if(strstr(RxString, "WiFi Scan") != 0)
+				else if(strstr(RxString, "wifi scan") != 0)
 				{
 					printf("**WiFi Scan Started\n");
 					DoWiFiScan();
+				}
+				else if(strstr(RxString, "wifi pw ") != 0)
+				{
+					char *p_start = strstr(RxString, "wifi pw ");
+					if(p_start != NULL)
+					{
+						p_start += strlen("wifi pw");
+						char *p_index_loc = strchr(p_start, ' ');
+						if(p_index_loc != NULL)
+						{
+							p_index_loc++;
+
+							char *p_pw_loc = strchr(p_index_loc, ' ');
+
+							if(p_pw_loc != NULL)
+							{
+								*p_pw_loc = 0;
+								p_pw_loc++;
+
+								int index = atoi(p_index_loc);
+
+								printf("**WiFi %d PW: %s\n", index, p_pw_loc);
+								SetPasswordForWiFiNetwork(index, &p_start[9]);
+							}
+						}
+					}
+				}
+				else if(strstr(RxString, "wifi join ") != 0)
+				{
+					char *p_start = strstr(RxString, "wifi join ");
+					if(p_start != NULL)
+					{
+						p_start += strlen("wifi join");
+						char *p_index_loc = strchr(p_start, ' ');
+						if(p_index_loc != NULL)
+						{
+							p_index_loc++;
+							int index = atoi(p_index_loc);
+							printf("**WiFi joining network: %d\n", index);
+							ConnectToWiFiNetwork(index);
+						}
+					}
 				}
 				else if(strstr(RxString, "quit") != 0)
 				{
@@ -262,7 +306,9 @@ count\n  \
 averages\n  \
 Reverse Rx\n  \
 Reverse Tx\n  \
-WiFi Scan\n  \
+wifi scan\n  \
+wifi pw <index> <password>\n \
+wifi join <index>\n	\
 quit\n");
 				}
 
