@@ -79,6 +79,7 @@ void DoWiFiScan(void);
 void CloseWiFi(void);
 void ConnectToWiFiNetwork(int index);
 void SetPasswordForWiFiNetwork(int index, char *p_password);
+void GetWiFiStatus(void);
 
 int main(void)
 {
@@ -260,7 +261,7 @@ int main(void)
 								int index = atoi(p_index_loc);
 
 								printf("**WiFi %d PW: %s\n", index, p_pw_loc);
-								SetPasswordForWiFiNetwork(index, &p_start[9]);
+								SetPasswordForWiFiNetwork(index, p_pw_loc);
 							}
 						}
 					}
@@ -280,6 +281,11 @@ int main(void)
 							ConnectToWiFiNetwork(index);
 						}
 					}
+				}
+				else if(strstr(RxString, "wifi status") != 0)
+				{
+					printf("**Getting WiFi Status\n");
+					GetWiFiStatus();
 				}
 				else if(strstr(RxString, "quit") != 0)
 				{
@@ -309,6 +315,7 @@ Reverse Tx\n  \
 wifi scan\n  \
 wifi pw <index> <password>\n \
 wifi join <index>\n	\
+wifi status\n \
 quit\n");
 				}
 

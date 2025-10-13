@@ -504,34 +504,6 @@ void *ProcessRxAudioSamples(void *arg)
 		AveragesRX[PHONELINE] = avg1/(PERIOD_LEN);
 		AveragesRX[HANDSET] = avg2/(PERIOD_LEN);
 
-#define MAX_WAIT_FOR_CORRECTION	100
-
-		if(RunOnce <= MAX_WAIT_FOR_CORRECTION)
-		{
-			RunOnce++;
-			/*
-			 * the samples for POTS should have an average because the HS is muted at boot.
-			 * the drivers did a bad job synchronizing the samples to the channels. sometimes
-			 * the samples start with POTS, sometimes it starts with Handset. there is no way
-			 * to know which is which. so we have to play this averages game to figure it out
-			 */
-			if((AveragesRX[PHONELINE] == 0) && (AveragesRX[HANDSET] != 0) && (CodecControlState == CODEC_IDLE))
-			{
-#if 0
-				printf("Switching Inputs on #%d!\n", RunOnce);
-				POTS_Sample_Rx_Index = HANDSET;
-				HS_Sample_Rx_Index = PHONELINE;
-#else
-				printf("\n\n\nFound Reversed Rx: %d\n\n\n", RunOnce);
-#endif
-				RunOnce = MAX_WAIT_FOR_CORRECTION+1;
-			}
-		}
-		if(RunOnce == MAX_WAIT_FOR_CORRECTION)
-		{
-			printf("---------->Done Looking For Channel Swap\n");
-			RunOnce++;
-		}
 
 		memcpy(RawLiveCallHSSamples, DeinterlaceRxdBuf[HS_Sample_Rx_Index], (PERIOD_LEN*2));
 		memcpy(RawLiveCallPOTSSamples, DeinterlaceRxdBuf[POTS_Sample_Rx_Index], (PERIOD_LEN*2));

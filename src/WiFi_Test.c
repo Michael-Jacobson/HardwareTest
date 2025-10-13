@@ -233,14 +233,14 @@ void DoWiFiScan(void)
 {
 	char do_it_again = 0;
 
-	printf("Doing WiFi Scan\n");
+	//printf("Doing WiFi Scan\n");
 
 	memset((void *)&g_wifi_scan_list, 0, sizeof(g_wifi_scan_list));
 
 	//current_time_in_ms = nm_utils_get_timestamp_msec();
 	previous_scan_time_in_ms = nm_device_wifi_get_last_scan (p_wifi);
 
-	printf("Pre-scan last scan: %ld\n", previous_scan_time_in_ms);
+	//printf("Pre-scan last scan: %ld\n", previous_scan_time_in_ms);
 
 	do
 	{
@@ -257,7 +257,7 @@ void DoWiFiScan(void)
 											   NULL,
 											   &WiFi_Scan_CallBack,
 											   p_scan_loop);
-			printf("async scan request returned\n");
+
 			g_main_loop_run(p_scan_loop);
 
 			g_main_loop_unref(p_scan_loop);
@@ -292,19 +292,15 @@ void WiFi_Scan_CallBack(GObject *p_source_object, GAsyncResult *p_result, gpoint
 	NMDeviceWifi *p_ThisWifi  = NM_DEVICE_WIFI(p_source_object);
 	GMainLoop *p_mainLoop = (GMainLoop *)(user_data);
 
-	printf("Callback launched\n");
-
 	if(p_wifi == p_ThisWifi)
 	{
-		printf("Correct WiFi\n");
 		do
 		{
-			printf("Finish scan?\n");
 			//get scan results
 			if(nm_device_wifi_request_scan_finish (p_ThisWifi, p_result, &p_error) == TRUE)
 			{
 				this_scan_in_ms = nm_device_wifi_get_last_scan (p_ThisWifi);
-				printf("Post-scan last scan: %ld\n", this_scan_in_ms);
+				//printf("Post-scan last scan: %ld\n", this_scan_in_ms);
 
 				if((this_scan_in_ms > previous_scan_time_in_ms) )
 				{
@@ -447,7 +443,8 @@ void WiFi_Scan_CallBack(GObject *p_source_object, GAsyncResult *p_result, gpoint
 			}
 			else
 			{
-				printf("failed scan finish\n");
+				g_message("failed scan finish: %s\n", p_error->message);
+				g_error_free(p_error);
 			}
 
 			break;
@@ -615,8 +612,10 @@ void ConnectToWiFiNetwork(int index)
 		NMSettingWireless *p_wirelessSetting = NM_SETTING_WIRELESS(nm_setting_wireless_new());
 
 		GBytes *p_ssid = g_bytes_new(g_wifi_scan_list.network[index].Header.SSIDName, strlen(g_wifi_scan_list.network[index].Header.SSIDName));
+		GBytes *p_bssid = g_bytes_new(g_wifi_scan_list.network[index].BSSID, strlen(g_wifi_scan_list.network[index].BSSID));
 		g_object_set(G_OBJECT(p_wirelessSetting),
 					 NM_SETTING_WIRELESS_SSID, p_ssid,
+					 NM_SETTING_WIRELESS_BSSID, p_bssid,
 					 NM_SETTING_WIRELESS_MODE, NM_SETTING_WIRELESS_MODE_INFRA,
 					 NULL);
 		nm_connection_add_setting(p_connection, NM_SETTING(p_wirelessSetting));
@@ -635,6 +634,7 @@ void ConnectToWiFiNetwork(int index)
 		NMSettingWirelessSecurity *p_wirelessSecuritySetting = NM_SETTING_WIRELESS_SECURITY(nm_setting_wireless_security_new());
 		if(strstr(g_wifi_scan_list.network[index].Header.SecurityType, "none") == NULL)
 		{
+			printf("Security: %s Setting PW: %s\n", g_wifi_scan_list.network[index].Header.SecurityType, g_wifi_scan_list.network[index].Header.PassCode);
 			if(g_wifi_scan_list.network[index].Header.PassCode[0] != 0)
 			{
 				g_object_set(G_OBJECT(p_wirelessSecuritySetting),
@@ -648,6 +648,18 @@ void ConnectToWiFiNetwork(int index)
 				printf("No password found for %s\n", g_wifi_scan_list.network[index].Header.SSIDName);
 			}
 		}
+		else
+		{
+			printf("No Security\n");
+		}
+
+		// Add IP settings (e.g., DHCP)
+		NMSettingIP4Config *p_ip4 = (NMSettingIP4Config *)nm_setting_ip4_config_new();
+		g_object_set(G_OBJECT(p_ip4),
+					 NM_SETTING_IP_CONFIG_METHOD,
+					 NM_SETTING_IP4_CONFIG_METHOD_AUTO,
+					 NULL);
+		nm_connection_add_setting(p_connection, NM_SETTING(p_ip4));
 
 		// Increment reference counts for connection and client objects
 		// to prevent premature destruction during asynchronous operation
@@ -659,7 +671,6 @@ void ConnectToWiFiNetwork(int index)
 		nm_client_add_and_activate_connection_async(p_client, p_connection, p_dev, NULL, NULL, NewConnectionCallBack, p_connect_loop);
 
 		// Start the main loop to process asynchronous operations
-		printf("Running connect callback loop\n");
 		g_main_loop_run(p_connect_loop);
 		g_main_loop_unref(p_connect_loop);
 
@@ -680,7 +691,6 @@ void ConnectToWiFiNetwork(int index)
  ********************************************************************************************************************/
 void NewConnectionCallBack(GObject *object, GAsyncResult *res, gpointer user_data)
 {
-	GError *p_error = NULL;
 	GMainLoop *p_mainLoop = (GMainLoop *)(user_data);
 
 	p_ActiveConnection = nm_client_add_and_activate_connection_finish(p_client, res, &p_error);
@@ -694,7 +704,7 @@ void NewConnectionCallBack(GObject *object, GAsyncResult *res, gpointer user_dat
 	}
 	else if (p_error)
 	{
-		printf("Error adding and activating connection: %s\n", p_error->message);
+		g_message("Error adding and activating connection: %s\n", p_error->message);
 		g_error_free(p_error);
 	}
 	else
@@ -730,7 +740,52 @@ void SetPasswordForWiFiNetwork(int index, char *p_password)
 	{
 		if(strlen(p_password) < WIFI_PASSWORD_STR_LEN)
 		{
+			printf("Setting Passcode: %s\n", p_password);
 			strcpy(g_wifi_scan_list.network[index].Header.PassCode, p_password);
+		}
+	}
+}
+
+/********************************************************************************************************************
+ *
+ ********************************************************************************************************************/
+void GetWiFiStatus(void)
+{
+	if (p_ActiveConnection == NULL)
+	{
+		g_print("No active WiFi connection found\n");
+	}
+	else
+	{
+		printf("Active wifi connection found\n");
+
+		NMActiveConnectionState active_connection_state = nm_active_connection_get_state (p_ActiveConnection);
+
+		switch(active_connection_state)
+		{
+			case NM_ACTIVE_CONNECTION_STATE_UNKNOWN:
+				printf("Active Connection State: Unknown\n");
+			break;
+
+			case NM_ACTIVE_CONNECTION_STATE_ACTIVATING:
+				printf("Active Connection State: Activating\n");
+			break;
+
+			case NM_ACTIVE_CONNECTION_STATE_ACTIVATED:
+				printf("Active Connection State: Activated\n");
+			break;
+
+			case NM_ACTIVE_CONNECTION_STATE_DEACTIVATING:
+				printf("Active Connection State: Deactivating\n");
+			break;
+
+			case NM_ACTIVE_CONNECTION_STATE_DEACTIVATED:
+				printf("Active Connection State: Deactivated\n");
+			break;
+
+			default:
+				printf("active state: none of the above\n");
+			break;
 		}
 	}
 }
@@ -740,38 +795,10 @@ void SetPasswordForWiFiNetwork(int index, char *p_password)
  ********************************************************************************************************************/
 void DisconnectFromWiFi(void)
 {
-	p_ActiveConnection = nm_device_get_active_connection (p_dev);
-	if (p_ActiveConnection == NULL)
+	if(p_ActiveConnection != NULL)
 	{
-		g_print("No active WiFi connection found\n");
-	}
-	else
-	{
-		printf("Active wifi connection found\n");
-	}
-
-	NMConnectivityState connectivity_state = nm_device_get_connectivity (p_dev,  AF_INET);
-	if(connectivity_state != NM_CONNECTIVITY_FULL)
-	{
-		if(connectivity_state == NM_CONNECTIVITY_NONE)
-		{
-			printf("No Connectivity\n");
-		}
-		if(connectivity_state == NM_CONNECTIVITY_PORTAL)
-		{
-			printf("Portal Blocked Connectivity\n");
-		}
-		if(connectivity_state == NM_CONNECTIVITY_LIMITED)
-		{
-			printf("Limited Connectivity\n");
-		}
-	}
-
-
-	//else
-	{
-		NMDeviceState current_state = nm_device_get_state (p_dev);
-		if(current_state == NM_DEVICE_STATE_ACTIVATED)
+		NMActiveConnectionState current_state = nm_active_connection_get_state (p_ActiveConnection);
+		if((current_state == NM_ACTIVE_CONNECTION_STATE_ACTIVATED) || (current_state == NM_ACTIVE_CONNECTION_STATE_ACTIVATING))
 		{
 			GMainLoop *p_disconnect_loop = g_main_loop_new(NULL, FALSE);
 			nm_client_deactivate_connection_async(p_client, p_ActiveConnection, NULL, on_deactivate_connection_finished, p_disconnect_loop);
@@ -782,6 +809,10 @@ void DisconnectFromWiFi(void)
 		{
 			printf("state isn't activated\n");
 		}
+	}
+	else
+	{
+		printf("Active Connection not available\n");
 	}
 }
 
