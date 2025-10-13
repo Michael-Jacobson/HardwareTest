@@ -101,6 +101,7 @@ GCancellable scan_cancellable;
 NMConnection *p_connection = NULL;
 GMainLoop *p_active_connection_loop = NULL;
 NMActiveConnection *p_ActiveConnection = NULL;
+NMRemoteConnection *p_remote_connection = NULL;
 
 pthread_t WiFiSignalThread = 0;
 
@@ -111,13 +112,17 @@ void CloseWiFi(void);
 static char CheckWiFiServiceStarted(void);
 static void GetChannelFromFreq(guint32 freq, char *p_outputString);
 void DisconnectFromWiFi(void);
+void GetWiFiStatus(void);
+void DecodeAndPrintActiveConnectionStateAndReason(NMActiveConnectionState state, NMActiveConnectionStateReason reason);
 
-void WiFi_Scan_CallBack(GObject *p_source_object, GAsyncResult *p_result, gpointer user_data);
-void NewConnectionCallBack(GObject *object, GAsyncResult *res, gpointer user_data);
-void on_deactivate_connection_finished(GObject *source_object, GAsyncResult *res, gpointer user_data);
+void WiFiScanCB(GObject *p_source_object, GAsyncResult *p_result, gpointer user_data);
+void NewConnectionCB(GObject *object, GAsyncResult *res, gpointer user_data);
+void ActiveConnectionDisconnectCB(GObject *source_object, GAsyncResult *res, gpointer user_data);
+void RemoteConnectionDeleteCB(GObject *source_object, GAsyncResult *res, gpointer user_data);
 void *WiFiSignalCallbacks(void *arg);
 void ActiveConnectionAddedCB (NMClient *p_client, NMActiveConnection *p_active_connection, gpointer user_data);
 void ActiveConnectionRemovedCB (NMClient *p_client, NMActiveConnection *p_active_connection, gpointer user_data);
+void ActiveConnectionStateChangedCB(NMActiveConnection *p_active_connection, guint state, guint reason, gpointer user_data);
 
 /*****************************************************************************
  *
@@ -183,11 +188,36 @@ void CloseWiFi(void)
 		{
 			pthread_join(WiFiSignalThread, NULL);
 		}
+
+		if(p_active_connection_loop)
+		{
+			g_main_loop_unref(p_active_connection_loop);
+		}
 	}
 
 	if(p_connection)
 	{
 		g_object_unref(p_connection);
+	}
+
+	if(p_ActiveConnection)
+	{
+		g_object_unref(p_ActiveConnection);
+	}
+
+	if(p_remote_connection)
+	{
+		g_object_unref(p_remote_connection);
+	}
+
+	if(p_dev)
+	{
+		g_object_unref(p_dev);
+	}
+
+	if(p_error)
+	{
+		g_error_free(p_error);
 	}
 
 	if(p_client)
@@ -205,17 +235,18 @@ void *WiFiSignalCallbacks(void *arg)
 
 	if((p_client != NULL) && (p_SignalsContext != NULL))
 	{
-		printf("Starting Signal Callbacks\n");
+		//printf("Starting Signal Callbacks\n");
 		p_active_connection_loop = g_main_loop_new(p_SignalsContext, FALSE);
 
-		g_signal_connect(p_client, "active-connection-added", G_CALLBACK(ActiveConnectionAddedCB), p_active_connection_loop);
-		g_signal_connect(p_client, "active-connection-removed", G_CALLBACK(ActiveConnectionRemovedCB), p_active_connection_loop);
+		//g_signal_connect(p_client, "active-connection-added", G_CALLBACK(ActiveConnectionAddedCB), p_active_connection_loop);
+		//g_signal_connect(p_client, "active-connection-removed", G_CALLBACK(ActiveConnectionRemovedCB), p_active_connection_loop);
+		//g_signal_connect(p_ActiveConnection, "state-changed", G_CALLBACK(ActiveConnectionStateChangedCB), p_active_connection_loop);
 
 		g_main_loop_run(p_active_connection_loop);
 
 		g_main_loop_unref(p_active_connection_loop);
 
-		printf("Ending Signal Callbacks\n");
+		//printf("Ending Signal Callbacks\n");
 	}
 	else
 	{
@@ -250,13 +281,10 @@ void DoWiFiScan(void)
 			gint64 this_scan = 0;
 			GMainLoop *p_scan_loop;
 
-			printf("starting scan async\n");
+			//printf("starting scan async\n");
 			p_scan_loop = g_main_loop_new(NULL, FALSE);
 			//request scan  - returns immediately, immediately calls callback
-			nm_device_wifi_request_scan_async (p_wifi,
-											   NULL,
-											   &WiFi_Scan_CallBack,
-											   p_scan_loop);
+			nm_device_wifi_request_scan_async (p_wifi, NULL, &WiFiScanCB, p_scan_loop);
 
 			g_main_loop_run(p_scan_loop);
 
@@ -285,7 +313,7 @@ void DoWiFiScan(void)
 /*****************************************************************************
  *
  */
-void WiFi_Scan_CallBack(GObject *p_source_object, GAsyncResult *p_result, gpointer user_data)
+void WiFiScanCB(GObject *p_source_object, GAsyncResult *p_result, gpointer user_data)
 {
 	gint64 this_scan_in_ms = 0;
 	int timeout = 0;
@@ -437,7 +465,7 @@ void WiFi_Scan_CallBack(GObject *p_source_object, GAsyncResult *p_result, gpoint
 				{
 					printf("Not a new scan, sleeping\n");
 					sleep(4);
-					nm_device_wifi_request_scan_async(p_ThisWifi, NULL, WiFi_Scan_CallBack, user_data);
+					nm_device_wifi_request_scan_async(p_ThisWifi, NULL, WiFiScanCB, user_data);
 					return;
 				}
 			}
@@ -668,7 +696,7 @@ void ConnectToWiFiNetwork(int index)
 		p_connect_loop = g_main_loop_new(NULL, FALSE);
 
 
-		nm_client_add_and_activate_connection_async(p_client, p_connection, p_dev, NULL, NULL, NewConnectionCallBack, p_connect_loop);
+		nm_client_add_and_activate_connection_async(p_client, p_connection, p_dev, NULL, NULL, NewConnectionCB, p_connect_loop);
 
 		// Start the main loop to process asynchronous operations
 		g_main_loop_run(p_connect_loop);
@@ -689,7 +717,7 @@ void ConnectToWiFiNetwork(int index)
 /********************************************************************************************************************
  *
  ********************************************************************************************************************/
-void NewConnectionCallBack(GObject *object, GAsyncResult *res, gpointer user_data)
+void NewConnectionCB(GObject *object, GAsyncResult *res, gpointer user_data)
 {
 	GMainLoop *p_mainLoop = (GMainLoop *)(user_data);
 
@@ -699,7 +727,7 @@ void NewConnectionCallBack(GObject *object, GAsyncResult *res, gpointer user_dat
 	{
 		printf("No active connection found yet\n");
 		sleep(1);
-		nm_client_add_and_activate_connection_async(p_client, p_connection, p_dev, NULL, NULL, NewConnectionCallBack, user_data);
+		nm_client_add_and_activate_connection_async(p_client, p_connection, p_dev, NULL, NULL, NewConnectionCB, user_data);
 		return;
 	}
 	else if (p_error)
@@ -710,6 +738,9 @@ void NewConnectionCallBack(GObject *object, GAsyncResult *res, gpointer user_dat
 	else
 	{
 		printf("Connection added and activated successfully!\n");
+		g_signal_connect(p_ActiveConnection, "state-changed", G_CALLBACK(ActiveConnectionStateChangedCB), p_active_connection_loop);
+
+		GetWiFiStatus();
 	}
 
 	g_main_loop_quit(p_mainLoop);
@@ -718,17 +749,9 @@ void NewConnectionCallBack(GObject *object, GAsyncResult *res, gpointer user_dat
 /********************************************************************************************************************
  *
  ********************************************************************************************************************/
-void ActiveConnectionAddedCB (NMClient *p_client, NMActiveConnection *p_active_connection, gpointer user_data)
+void ActiveConnectionStateChangedCB(NMActiveConnection *p_active_connection, guint state, guint reason, gpointer user_data)
 {
-	printf("Connection added!\n");
-}
-
-/********************************************************************************************************************
- *
- ********************************************************************************************************************/
-void ActiveConnectionRemovedCB (NMClient *p_client, NMActiveConnection *p_active_connection, gpointer user_data)
-{
-	printf("Connection Removed!\n");
+	DecodeAndPrintActiveConnectionStateAndReason(state, reason);
 }
 
 /********************************************************************************************************************
@@ -740,7 +763,7 @@ void SetPasswordForWiFiNetwork(int index, char *p_password)
 	{
 		if(strlen(p_password) < WIFI_PASSWORD_STR_LEN)
 		{
-			printf("Setting Passcode: %s\n", p_password);
+			printf("Setting WiFi %d Passcode: %s\n", index, p_password);
 			strcpy(g_wifi_scan_list.network[index].Header.PassCode, p_password);
 		}
 	}
@@ -760,34 +783,131 @@ void GetWiFiStatus(void)
 		printf("Active wifi connection found\n");
 
 		NMActiveConnectionState active_connection_state = nm_active_connection_get_state (p_ActiveConnection);
+		NMActiveConnectionStateReason active_connection_reason = nm_active_connection_get_state_reason (p_ActiveConnection);
 
-		switch(active_connection_state)
-		{
-			case NM_ACTIVE_CONNECTION_STATE_UNKNOWN:
-				printf("Active Connection State: Unknown\n");
-			break;
+		DecodeAndPrintActiveConnectionStateAndReason(active_connection_state, active_connection_reason);
 
-			case NM_ACTIVE_CONNECTION_STATE_ACTIVATING:
-				printf("Active Connection State: Activating\n");
-			break;
-
-			case NM_ACTIVE_CONNECTION_STATE_ACTIVATED:
-				printf("Active Connection State: Activated\n");
-			break;
-
-			case NM_ACTIVE_CONNECTION_STATE_DEACTIVATING:
-				printf("Active Connection State: Deactivating\n");
-			break;
-
-			case NM_ACTIVE_CONNECTION_STATE_DEACTIVATED:
-				printf("Active Connection State: Deactivated\n");
-			break;
-
-			default:
-				printf("active state: none of the above\n");
-			break;
-		}
+		system("ifconfig");
 	}
+}
+
+/********************************************************************************************************************
+ *
+ ********************************************************************************************************************/
+void DecodeAndPrintActiveConnectionStateAndReason(NMActiveConnectionState state, NMActiveConnectionStateReason reason)
+{
+	printf("\n***");
+	switch(state)
+	{
+		case NM_ACTIVE_CONNECTION_STATE_UNKNOWN:
+			printf("Active Connection State: Unknown");
+		break;
+
+		case NM_ACTIVE_CONNECTION_STATE_ACTIVATING:
+			printf("Active Connection State: Activating");
+		break;
+
+		case NM_ACTIVE_CONNECTION_STATE_ACTIVATED:
+			printf("Active Connection State: Activated");
+		break;
+
+		case NM_ACTIVE_CONNECTION_STATE_DEACTIVATING:
+			printf("Active Connection State: Deactivating");
+		break;
+
+		case NM_ACTIVE_CONNECTION_STATE_DEACTIVATED:
+			printf("Active Connection State: Deactivated");
+			g_signal_handlers_disconnect_by_func (p_ActiveConnection, ActiveConnectionStateChangedCB, p_active_connection_loop);
+		break;
+
+		default:
+			printf("active state: none of the above");
+		break;
+	}
+
+	printf(" ---> ");
+	switch(reason)
+	{
+		case NM_ACTIVE_CONNECTION_STATE_REASON_UNKNOWN:
+			printf("The reason for the active connection state change is unknown.\n");
+		break;
+
+
+		case NM_ACTIVE_CONNECTION_STATE_REASON_NONE:
+			printf("No reason was given for the active connection state change.\n");
+		break;
+
+
+		case NM_ACTIVE_CONNECTION_STATE_REASON_USER_DISCONNECTED:
+			printf("The active connection changed state because the user disconnected it.\n");
+		break;
+
+
+		case NM_ACTIVE_CONNECTION_STATE_REASON_DEVICE_DISCONNECTED:
+			printf("The active connection changed state because the device it was using was disconnected.\n");
+		break;
+
+
+		case NM_ACTIVE_CONNECTION_STATE_REASON_SERVICE_STOPPED:
+			printf("The service providing the VPN connection was stopped.\n");
+		break;
+
+
+		case NM_ACTIVE_CONNECTION_STATE_REASON_IP_CONFIG_INVALID:
+			printf("The IP config of the active connection was invalid.\n");
+		break;
+
+
+		case NM_ACTIVE_CONNECTION_STATE_REASON_CONNECT_TIMEOUT:
+			printf("The connection attempt to the VPN service timed out.\n");
+		break;
+
+
+		case NM_ACTIVE_CONNECTION_STATE_REASON_SERVICE_START_TIMEOUT:
+			printf("A timeout occurred while starting the service providing the VPN connection.\n");
+		break;
+
+
+		case NM_ACTIVE_CONNECTION_STATE_REASON_SERVICE_START_FAILED:
+			printf("Starting the service providing the VPN connection failed.\n");
+		break;
+
+
+		case NM_ACTIVE_CONNECTION_STATE_REASON_NO_SECRETS:
+			printf("Necessary secrets for the connection were not provided.\n");
+		break;
+
+
+		case NM_ACTIVE_CONNECTION_STATE_REASON_LOGIN_FAILED:
+			printf("Authentication to the server failed.\n");
+		break;
+
+
+		case NM_ACTIVE_CONNECTION_STATE_REASON_CONNECTION_REMOVED:
+			printf("The connection was deleted from settings.\n");
+		break;
+
+
+		case NM_ACTIVE_CONNECTION_STATE_REASON_DEPENDENCY_FAILED:
+			printf("Master connection of this connection failed to activate.\n");
+		break;
+
+
+		case NM_ACTIVE_CONNECTION_STATE_REASON_DEVICE_REALIZE_FAILED:
+			printf("Could not create the software device link.\n");
+		break;
+
+
+		case NM_ACTIVE_CONNECTION_STATE_REASON_DEVICE_REMOVED:
+			printf("The device this connection depended on disappeared.\n");
+		break;
+
+		default:
+			printf("Who-knows? reason\n");
+		break;
+	}
+
+	printf("\n");
 }
 
 /********************************************************************************************************************
@@ -801,9 +921,32 @@ void DisconnectFromWiFi(void)
 		if((current_state == NM_ACTIVE_CONNECTION_STATE_ACTIVATED) || (current_state == NM_ACTIVE_CONNECTION_STATE_ACTIVATING))
 		{
 			GMainLoop *p_disconnect_loop = g_main_loop_new(NULL, FALSE);
-			nm_client_deactivate_connection_async(p_client, p_ActiveConnection, NULL, on_deactivate_connection_finished, p_disconnect_loop);
+
+			//get some kind of handle on how to get the store wifi connection so we can delete it
+			p_remote_connection = nm_client_get_connection_by_uuid (p_client, nm_active_connection_get_uuid (p_ActiveConnection));
+
+			//shut down current wifi connection
+			nm_client_deactivate_connection_async(p_client, p_ActiveConnection, NULL, ActiveConnectionDisconnectCB, p_disconnect_loop);
+
 			g_main_loop_run(p_disconnect_loop);
+
+			//wait for it to return and delete the stored connection
+			g_signal_handlers_disconnect_by_func (p_ActiveConnection, ActiveConnectionStateChangedCB, p_active_connection_loop);
+
+			//delete remote connection if it exists
+			if(p_remote_connection != NULL)
+			{
+				nm_remote_connection_delete_async (p_remote_connection, NULL, RemoteConnectionDeleteCB, p_disconnect_loop);
+
+				g_main_loop_run(p_disconnect_loop);
+			}
+
+			//end that loop
 			g_main_loop_unref(p_disconnect_loop);
+
+			//invalidate the pointers
+			g_object_unref(p_ActiveConnection);
+			g_object_unref(p_remote_connection);
 		}
 		else
 		{
@@ -820,14 +963,13 @@ void DisconnectFromWiFi(void)
 /********************************************************************************************************************
  *
  ********************************************************************************************************************/
-void on_deactivate_connection_finished(GObject *source_object, GAsyncResult *res, gpointer user_data)
+void ActiveConnectionDisconnectCB(GObject *source_object, GAsyncResult *res, gpointer user_data)
 {
-    GError *error = NULL;
-    gboolean success = nm_client_deactivate_connection_finish(NM_CLIENT(source_object), res, &error);
+    gboolean success = nm_client_deactivate_connection_finish(p_client, res, &p_error);
     if (!success)
     {
-        g_print("Error deactivating connection: %s\n", error->message);
-        g_error_free(error);
+        g_print("Error deactivating connection: %s\n", p_error->message);
+        g_error_free(p_error);
     }
     else
     {
@@ -838,7 +980,26 @@ void on_deactivate_connection_finished(GObject *source_object, GAsyncResult *res
 }
 
 
+/********************************************************************************************************************
+ *
+ ********************************************************************************************************************/
+void RemoteConnectionDeleteCB(GObject *source_object, GAsyncResult *res, gpointer user_data)
+{
+	gboolean success = nm_remote_connection_delete_finish (p_remote_connection, res, &p_error);
 
+	if (!success)
+	{
+		g_print("Error deleting remote connection: %s\n", p_error->message);
+		g_error_free(p_error);
+	}
+	else
+	{
+		g_print("WiFi remote connection deleted successfully\n");
+	}
+
+	GMainLoop *loop = (GMainLoop *)user_data;
+	g_main_loop_quit(loop);
+}
 
 
 

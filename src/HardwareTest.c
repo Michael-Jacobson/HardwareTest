@@ -80,6 +80,7 @@ void CloseWiFi(void);
 void ConnectToWiFiNetwork(int index);
 void SetPasswordForWiFiNetwork(int index, char *p_password);
 void GetWiFiStatus(void);
+void DisconnectFromWiFi(void);
 
 int main(void)
 {
@@ -260,7 +261,7 @@ int main(void)
 
 								int index = atoi(p_index_loc);
 
-								printf("**WiFi %d PW: %s\n", index, p_pw_loc);
+								//printf("**WiFi %d PW: %s\n", index, p_pw_loc);
 								SetPasswordForWiFiNetwork(index, p_pw_loc);
 							}
 						}
@@ -286,6 +287,11 @@ int main(void)
 				{
 					printf("**Getting WiFi Status\n");
 					GetWiFiStatus();
+				}
+				else if(strstr(RxString, "wifi leave") != 0)
+				{
+					printf("**Leaving WiFi Network\n");
+					DisconnectFromWiFi();
 				}
 				else if(strstr(RxString, "quit") != 0)
 				{
