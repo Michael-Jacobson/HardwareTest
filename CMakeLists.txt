@@ -20,7 +20,7 @@ target_link_options(${PROJECT_NAME} PUBLIC "-no-pie")
 target_link_options(${PROJECT_NAME} PUBLIC "-L${CMAKE_SOURCE_DIR}/Lib")
 
 # link libpthread
-target_link_libraries(${PROJECT_NAME} pthread m asound )
+target_link_libraries(${PROJECT_NAME} pthread m asound nm glib-2.0 gobject-2.0)
 
 # Install library
 install(TARGETS ${PROJECT_NAME} DESTINATION ${CMAKE_INSTALL_BINDIR})
