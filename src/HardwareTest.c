@@ -322,6 +322,7 @@ wifi scan\n  \
 wifi pw <index> <password>\n \
 wifi join <index>\n	\
 wifi status\n \
+wifi leave\n \
 quit\n");
 				}
 
