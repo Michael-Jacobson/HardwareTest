@@ -120,8 +120,6 @@ void NewConnectionCB(GObject *object, GAsyncResult *res, gpointer user_data);
 void ActiveConnectionDisconnectCB(GObject *source_object, GAsyncResult *res, gpointer user_data);
 void RemoteConnectionDeleteCB(GObject *source_object, GAsyncResult *res, gpointer user_data);
 void *WiFiSignalCallbacks(void *arg);
-void ActiveConnectionAddedCB (NMClient *p_client, NMActiveConnection *p_active_connection, gpointer user_data);
-void ActiveConnectionRemovedCB (NMClient *p_client, NMActiveConnection *p_active_connection, gpointer user_data);
 void ActiveConnectionStateChangedCB(NMActiveConnection *p_active_connection, guint state, guint reason, gpointer user_data);
 
 /*****************************************************************************
@@ -650,13 +648,13 @@ void ConnectToWiFiNetwork(int index)
 
 		/*
 		 * Key Management Options
-"wpa-psk": This is a common option used for Wi-Fi networks that use a Pre-Shared Key (PSK) for authentication. This applies to WPA, WPA2, and increasingly WPA3-Personal networks.
+		"wpa-psk": This is a common option used for Wi-Fi networks that use a Pre-Shared Key (PSK) for authentication. This applies to WPA, WPA2, and increasingly WPA3-Personal networks.
 
-"sae": This option is for WPA3-Personal networks, which use Simultaneous Authentication of Equals (SAE) for more secure authentication than traditional WPA-PSK.
+		"sae": This option is for WPA3-Personal networks, which use Simultaneous Authentication of Equals (SAE) for more secure authentication than traditional WPA-PSK.
 
-"wpa-eap": This option is used for enterprise-level Wi-Fi security, where a central authentication server (like RADIUS) is used via the Extensible Authentication Protocol (EAP) to authenticate users.
+		"wpa-eap": This option is used for enterprise-level Wi-Fi security, where a central authentication server (like RADIUS) is used via the Extensible Authentication Protocol (EAP) to authenticate users.
 
-"wpa-none": This indicates no security is used for the network. While it exists, it's generally not recommended for security.
+		"wpa-none": This indicates no security is used for the network. While it exists, it's generally not recommended for security.
 		 */
 		// Create and set the wireless security settings
 		NMSettingWirelessSecurity *p_wirelessSecuritySetting = NM_SETTING_WIRELESS_SECURITY(nm_setting_wireless_security_new());
