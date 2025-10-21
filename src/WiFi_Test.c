@@ -150,6 +150,7 @@ char InitWiFi(void)
 
 				if(p_wifi != NULL)
 				{
+					g_object_ref(p_wifi);
 					g_object_ref(p_dev);
 					g_object_ref(p_client);
 					pthread_create( &WiFiSignalThread, NULL, WiFiSignalCallbacks, NULL );
@@ -206,6 +207,10 @@ void CloseWiFi(void)
 	if(p_remote_connection)
 	{
 		g_object_unref(p_remote_connection);
+	}
+	if(p_wifi)
+	{
+		g_object_unref(p_wifi);
 	}
 	if(p_dev)
 	{
