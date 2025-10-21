@@ -137,6 +137,7 @@ char InitWiFi(void)
 		{
 			g_message("Error: Could not connect to NetworkManager: %s.", p_error->message);
 			g_error_free(p_error);
+			p_error = NULL;
 			return -1;
 		}
 		else
@@ -149,6 +150,8 @@ char InitWiFi(void)
 
 				if(p_wifi != NULL)
 				{
+					g_object_ref(p_dev);
+					g_object_ref(p_client);
 					pthread_create( &WiFiSignalThread, NULL, WiFiSignalCallbacks, NULL );
 					return_val = 1;
 				}
@@ -192,32 +195,27 @@ void CloseWiFi(void)
 			g_main_loop_unref(p_active_connection_loop);
 		}
 	}
-
 	if(p_connection)
 	{
 		g_object_unref(p_connection);
 	}
-
 	if(p_ActiveConnection)
 	{
 		g_object_unref(p_ActiveConnection);
 	}
-
 	if(p_remote_connection)
 	{
 		g_object_unref(p_remote_connection);
 	}
-
 	if(p_dev)
 	{
 		g_object_unref(p_dev);
 	}
-
 	if(p_error)
 	{
 		g_error_free(p_error);
+		p_error = NULL;
 	}
-
 	if(p_client)
 	{
 		g_object_unref(p_client);
@@ -225,24 +223,21 @@ void CloseWiFi(void)
 }
 
 /*****************************************************************************
- *
+ * this is for the active connection signal, but we can't add the signal until we get an active connection
  */
 void *WiFiSignalCallbacks(void *arg)
 {
-	GMainContext *p_SignalsContext = g_main_context_new ();
+	GMainContext *p_SignalsContext = g_main_context_new (); //new thread means new context or else nothing else will run or we will get g errors
 
 	if((p_client != NULL) && (p_SignalsContext != NULL))
 	{
 		//printf("Starting Signal Callbacks\n");
 		p_active_connection_loop = g_main_loop_new(p_SignalsContext, FALSE);
 
-		//g_signal_connect(p_client, "active-connection-added", G_CALLBACK(ActiveConnectionAddedCB), p_active_connection_loop);
-		//g_signal_connect(p_client, "active-connection-removed", G_CALLBACK(ActiveConnectionRemovedCB), p_active_connection_loop);
-		//g_signal_connect(p_ActiveConnection, "state-changed", G_CALLBACK(ActiveConnectionStateChangedCB), p_active_connection_loop);
-
 		g_main_loop_run(p_active_connection_loop);
 
 		g_main_loop_unref(p_active_connection_loop);
+		p_active_connection_loop = NULL;
 
 		//printf("Ending Signal Callbacks\n");
 	}
@@ -256,7 +251,8 @@ void *WiFiSignalCallbacks(void *arg)
 
 
 /*****************************************************************************
- *
+ * scans do not happen immediately, we live on the old scan until the new one happens
+ * and that is only detectable by the timestamp of the last scan
  */
 void DoWiFiScan(void)
 {
@@ -294,7 +290,7 @@ void DoWiFiScan(void)
 			{
 				//we need to do this again
 				do_it_again = 1;
-				printf("trying again\n");
+				printf("scan failed after many attempts, trying again\n");
 			}
 			else
 			{
@@ -317,6 +313,7 @@ void WiFiScanCB(GObject *p_source_object, GAsyncResult *p_result, gpointer user_
 	int timeout = 0;
 	NMDeviceWifi *p_ThisWifi  = NM_DEVICE_WIFI(p_source_object);
 	GMainLoop *p_mainLoop = (GMainLoop *)(user_data);
+	int try_again = 0;
 
 	if(p_wifi == p_ThisWifi)
 	{
@@ -464,6 +461,13 @@ void WiFiScanCB(GObject *p_source_object, GAsyncResult *p_result, gpointer user_
 					printf("Not a new scan, sleeping\n");
 					sleep(4);
 					nm_device_wifi_request_scan_async(p_ThisWifi, NULL, WiFiScanCB, user_data);
+
+					try_again++;
+
+					if(try_again >= 10)
+					{
+						g_main_loop_quit(p_mainLoop);
+					}
 					return;
 				}
 			}
@@ -471,6 +475,7 @@ void WiFiScanCB(GObject *p_source_object, GAsyncResult *p_result, gpointer user_
 			{
 				g_message("failed scan finish: %s\n", p_error->message);
 				g_error_free(p_error);
+				p_error = NULL;
 			}
 
 			break;
@@ -690,7 +695,7 @@ void ConnectToWiFiNetwork(int index)
 		// Increment reference counts for connection and client objects
 		// to prevent premature destruction during asynchronous operation
 		g_object_ref(p_connection);
-		g_object_ref(p_client);
+
 		p_connect_loop = g_main_loop_new(NULL, FALSE);
 
 
@@ -699,12 +704,6 @@ void ConnectToWiFiNetwork(int index)
 		// Start the main loop to process asynchronous operations
 		g_main_loop_run(p_connect_loop);
 		g_main_loop_unref(p_connect_loop);
-
-
-
-
-		//g_object_unref(p_connection);
-		//g_object_unref(p_client);
 	}
 	else
 	{
@@ -732,10 +731,11 @@ void NewConnectionCB(GObject *object, GAsyncResult *res, gpointer user_data)
 	{
 		g_message("Error adding and activating connection: %s\n", p_error->message);
 		g_error_free(p_error);
+		p_error = NULL;
 	}
 	else
 	{
-		printf("Connection added and activated successfully!\n");
+		printf("Connection added and activated successfully! -->This doesn't mean we are connected.\n");
 		g_signal_connect(p_ActiveConnection, "state-changed", G_CALLBACK(ActiveConnectionStateChangedCB), p_active_connection_loop);
 
 		GetWiFiStatus();
@@ -785,7 +785,7 @@ void GetWiFiStatus(void)
 
 		DecodeAndPrintActiveConnectionStateAndReason(active_connection_state, active_connection_reason);
 
-		system("ifconfig");
+		system("ifconfig"); //verification from the system
 	}
 }
 
@@ -923,15 +923,17 @@ void DisconnectFromWiFi(void)
 			//get some kind of handle on how to get the store wifi connection so we can delete it
 			p_remote_connection = nm_client_get_connection_by_uuid (p_client, nm_active_connection_get_uuid (p_ActiveConnection));
 
+			//g_signal_handlers_disconnect_by_func (p_ActiveConnection, ActiveConnectionStateChangedCB, p_active_connection_loop); this has to happen before we d/c
+
 			//shut down current wifi connection
 			nm_client_deactivate_connection_async(p_client, p_ActiveConnection, NULL, ActiveConnectionDisconnectCB, p_disconnect_loop);
 
 			g_main_loop_run(p_disconnect_loop);
 
-			//wait for it to return and delete the stored connection
-			g_signal_handlers_disconnect_by_func (p_ActiveConnection, ActiveConnectionStateChangedCB, p_active_connection_loop);
+			//wait for it to return and delete the stored/remote connection
+			g_object_unref(p_ActiveConnection);
 
-			//delete remote connection if it exists
+			//delete saved/remote connection if it exists
 			if(p_remote_connection != NULL)
 			{
 				nm_remote_connection_delete_async (p_remote_connection, NULL, RemoteConnectionDeleteCB, p_disconnect_loop);
@@ -943,8 +945,10 @@ void DisconnectFromWiFi(void)
 			g_main_loop_unref(p_disconnect_loop);
 
 			//invalidate the pointers
-			g_object_unref(p_ActiveConnection);
-			g_object_unref(p_remote_connection);
+			//g_object_unref(p_remote_connection); i get an error when i do this, apparently this gets unref'd on delete, or we don't need to unref this
+
+			p_ActiveConnection = NULL; //unref doesn't NULL the pointers
+			p_remote_connection = NULL;
 		}
 		else
 		{
@@ -968,6 +972,7 @@ void ActiveConnectionDisconnectCB(GObject *source_object, GAsyncResult *res, gpo
     {
         g_print("Error deactivating connection: %s\n", p_error->message);
         g_error_free(p_error);
+		p_error = NULL;
     }
     else
     {
@@ -989,6 +994,7 @@ void RemoteConnectionDeleteCB(GObject *source_object, GAsyncResult *res, gpointe
 	{
 		g_print("Error deleting remote connection: %s\n", p_error->message);
 		g_error_free(p_error);
+		p_error = NULL;
 	}
 	else
 	{
