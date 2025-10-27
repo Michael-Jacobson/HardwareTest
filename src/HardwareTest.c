@@ -259,6 +259,14 @@ int main(void)
 								*p_pw_loc = 0;
 								p_pw_loc++;
 
+								//look for \r to kill it off as it will mess with our PW
+								char *p_cr_loc = strchr(p_pw_loc, '\n');
+
+								if(p_cr_loc != NULL)
+								{
+									*p_cr_loc = 0;
+								}
+
 								int index = atoi(p_index_loc);
 
 								//printf("**WiFi %d PW: %s\n", index, p_pw_loc);

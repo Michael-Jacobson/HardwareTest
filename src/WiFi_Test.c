@@ -102,6 +102,7 @@ NMConnection *p_connection = NULL;
 GMainLoop *p_active_connection_loop = NULL;
 NMActiveConnection *p_ActiveConnection = NULL;
 NMRemoteConnection *p_remote_connection = NULL;
+char Connected = FALSE;
 
 pthread_t WiFiSignalThread = 0;
 
@@ -532,7 +533,7 @@ static char CheckWiFiServiceStarted(void)
 		// run the command and save the output to a file
 		if ((fp = popen(command, "r")) == 0)
 		{
-			printf("Error opening pipe!\n");
+			printf("Error opening pipe1!\n");
 		}
 		else
 		{
@@ -543,7 +544,28 @@ static char CheckWiFiServiceStarted(void)
 				{
 					// Platform Manager is up and running
 					//printf("systemd wpa_supplcant service running\n");
-					retVal = 0;
+					memset(command, 0, sizeof(command));
+					snprintf(command, sizeof(command), "systemctl status NetworkManager | grep 'active (running)'");
+					if ((fp = popen(command, "r")) == 0)
+					{
+						printf("Error opening pipe2!\n");
+					}
+					else
+					{
+						while (fgets(buf, sizeof(buf), fp) != 0)
+						{
+							if (strstr(buf, "active (running) since"))
+							{
+								retVal = 0;
+								break;
+							}
+							else
+							{
+								printf("NetworkManager is not running!\n");
+							}
+						}
+					}
+
 					break;
 				}
 				else if(retVal == 2)
@@ -551,8 +573,8 @@ static char CheckWiFiServiceStarted(void)
 					printf("wpa_supplicant is not running\n");
 					retVal--;
 
-					system(WLAN0_IFCONFIG_UP);
-					system(WPA_SUPPLICANT_INIT_COMMAND);
+					//system(WLAN0_IFCONFIG_UP);
+					//system(WPA_SUPPLICANT_INIT_COMMAND);
 				}
 				else
 				{
@@ -628,9 +650,10 @@ static void GetChannelFromFreq(guint32 freq, char *p_outputString)
 void ConnectToWiFiNetwork(int index)
 {
 	printf("Attmpting connection...\n");
+
 	if(index < MaxNetworks)
 	{
-		GMainLoop *p_connect_loop;
+		GMainLoop *p_connect_loop = NULL;
 		// Create a new connection profile
 		p_connection = nm_simple_connection_new();
 
@@ -655,6 +678,8 @@ void ConnectToWiFiNetwork(int index)
 					 NM_SETTING_WIRELESS_MODE, NM_SETTING_WIRELESS_MODE_INFRA,
 					 NULL);
 		nm_connection_add_setting(p_connection, NM_SETTING(p_wirelessSetting));
+		g_bytes_unref(p_ssid);
+		g_bytes_unref(p_bssid);
 
 		/*
 		 * Key Management Options
@@ -670,9 +695,9 @@ void ConnectToWiFiNetwork(int index)
 		NMSettingWirelessSecurity *p_wirelessSecuritySetting = NM_SETTING_WIRELESS_SECURITY(nm_setting_wireless_security_new());
 		if(strstr(g_wifi_scan_list.network[index].Header.SecurityType, "none") == NULL)
 		{
-			printf("Security: %s Setting PW: %s\n", g_wifi_scan_list.network[index].Header.SecurityType, g_wifi_scan_list.network[index].Header.PassCode);
 			if(g_wifi_scan_list.network[index].Header.PassCode[0] != 0)
 			{
+				printf("SSID: %s Security: %s Setting PW: %s...\n", g_wifi_scan_list.network[index].Header.SSIDName, g_wifi_scan_list.network[index].Header.SecurityType, g_wifi_scan_list.network[index].Header.PassCode);
 				g_object_set(G_OBJECT(p_wirelessSecuritySetting),
 							 NM_SETTING_WIRELESS_SECURITY_KEY_MGMT, g_wifi_scan_list.network[index].Header.SecurityType,
 							 NM_SETTING_WIRELESS_SECURITY_PSK, g_wifi_scan_list.network[index].Header.PassCode,
@@ -682,18 +707,22 @@ void ConnectToWiFiNetwork(int index)
 			else
 			{
 				printf("No password found for %s\n", g_wifi_scan_list.network[index].Header.SSIDName);
+				return;
 			}
 		}
 		else
 		{
 			printf("No Security\n");
+			g_object_set(G_OBJECT(p_wirelessSecuritySetting),
+					 NM_SETTING_WIRELESS_SECURITY_KEY_MGMT, g_wifi_scan_list.network[index].Header.SecurityType,
+					 NULL);
+			nm_connection_add_setting(p_connection, NM_SETTING(p_wirelessSecuritySetting));
 		}
 
 		// Add IP settings (e.g., DHCP)
 		NMSettingIP4Config *p_ip4 = (NMSettingIP4Config *)nm_setting_ip4_config_new();
 		g_object_set(G_OBJECT(p_ip4),
-					 NM_SETTING_IP_CONFIG_METHOD,
-					 NM_SETTING_IP4_CONFIG_METHOD_AUTO,
+					 NM_SETTING_IP_CONFIG_METHOD, NM_SETTING_IP4_CONFIG_METHOD_AUTO,
 					 NULL);
 		nm_connection_add_setting(p_connection, NM_SETTING(p_ip4));
 
@@ -722,6 +751,9 @@ void ConnectToWiFiNetwork(int index)
 void NewConnectionCB(GObject *object, GAsyncResult *res, gpointer user_data)
 {
 	GMainLoop *p_mainLoop = (GMainLoop *)(user_data);
+	//int timeout = 0;
+
+	Connected = FALSE;
 
 	p_ActiveConnection = nm_client_add_and_activate_connection_finish(p_client, res, &p_error);
 
@@ -742,8 +774,6 @@ void NewConnectionCB(GObject *object, GAsyncResult *res, gpointer user_data)
 	{
 		printf("Connection added and activated successfully! -->This doesn't mean we are connected.\n");
 		g_signal_connect(p_ActiveConnection, "state-changed", G_CALLBACK(ActiveConnectionStateChangedCB), p_active_connection_loop);
-
-		GetWiFiStatus();
 	}
 
 	g_main_loop_quit(p_mainLoop);
@@ -766,7 +796,7 @@ void SetPasswordForWiFiNetwork(int index, char *p_password)
 	{
 		if(strlen(p_password) < WIFI_PASSWORD_STR_LEN)
 		{
-			printf("Setting WiFi %d Passcode: %s\n", index, p_password);
+			printf("Setting WiFi %d Passcode: %s...\n", index, p_password);
 			strcpy(g_wifi_scan_list.network[index].Header.PassCode, p_password);
 		}
 	}
@@ -783,7 +813,7 @@ void GetWiFiStatus(void)
 	}
 	else
 	{
-		printf("Active wifi connection found\n");
+		//printf("Active wifi connection found\n");
 
 		NMActiveConnectionState active_connection_state = nm_active_connection_get_state (p_ActiveConnection);
 		NMActiveConnectionStateReason active_connection_reason = nm_active_connection_get_state_reason (p_ActiveConnection);
@@ -812,6 +842,8 @@ void DecodeAndPrintActiveConnectionStateAndReason(NMActiveConnectionState state,
 
 		case NM_ACTIVE_CONNECTION_STATE_ACTIVATED:
 			printf("Active Connection State: Activated");
+			Connected = TRUE;
+			GetWiFiStatus();
 		break;
 
 		case NM_ACTIVE_CONNECTION_STATE_DEACTIVATING:
@@ -821,6 +853,7 @@ void DecodeAndPrintActiveConnectionStateAndReason(NMActiveConnectionState state,
 		case NM_ACTIVE_CONNECTION_STATE_DEACTIVATED:
 			printf("Active Connection State: Deactivated");
 			g_signal_handlers_disconnect_by_func (p_ActiveConnection, ActiveConnectionStateChangedCB, p_active_connection_loop);
+			Connected = FALSE;
 		break;
 
 		default:
