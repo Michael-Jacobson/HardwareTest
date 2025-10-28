@@ -14,6 +14,7 @@
 #include <glib-2.0/glib.h>
 #include <libnm/NetworkManager.h>
 #include "WiFiChannelDef.h"
+#include "WiFi_test.h"
 
 #define WLAN0_IFCONFIG_UP						"ifconfig wlan0 up"
 #define WPA_SUPPLICANT_INIT_COMMAND             "systemctl restart wpa_supplicant"
@@ -87,9 +88,6 @@ typedef struct
 } WiFiParams_t;
 
 
-pthread_t CallbacksThread = 0;
-
-
 wifi_network_list_t g_wifi_scan_list;
 
 NMClient *p_client = NULL;
@@ -99,28 +97,40 @@ NMDeviceWifi *p_wifi = NULL;
 gint64 previous_scan_time_in_ms = 0;
 GCancellable scan_cancellable;
 NMConnection *p_connection = NULL;
-GMainLoop *p_active_connection_loop = NULL;
+GMainLoop *p_wifi_processing_loop = NULL;
 NMActiveConnection *p_ActiveConnection = NULL;
 NMRemoteConnection *p_remote_connection = NULL;
 char Connected = FALSE;
 
-pthread_t WiFiSignalThread = 0;
+pthread_t WiFiProcessingThread = 0;
 
+int ConnectIndex = INVALID_INDEX;
 int MaxNetworks = 0;
+int WiFiKeepGoing = 0;
+int disconnect_in_progress = 0;
 
+WiFiStates_t WiFiState = WIFI_IDLE;
+
+void *WiFiProcessing(void *arg);
+char InitWiFi(void);
 void CloseWiFi(void);
 
 static char CheckWiFiServiceStarted(void);
 static void GetChannelFromFreq(guint32 freq, char *p_outputString);
-void DisconnectFromWiFi(void);
 void GetWiFiStatus(void);
 void DecodeAndPrintActiveConnectionStateAndReason(NMActiveConnectionState state, NMActiveConnectionStateReason reason);
+
+void DoWiFiScan(void);
+void ConnectToWiFiNetwork(int index);
+void GetWiFiStatus(void);
+void DisconnectFromWiFi(void);
+void DeleteWiFiConnection(void);
 
 void WiFiScanCB(GObject *p_source_object, GAsyncResult *p_result, gpointer user_data);
 void NewConnectionCB(GObject *object, GAsyncResult *res, gpointer user_data);
 void ActiveConnectionDisconnectCB(GObject *source_object, GAsyncResult *res, gpointer user_data);
 void RemoteConnectionDeleteCB(GObject *source_object, GAsyncResult *res, gpointer user_data);
-void *WiFiSignalCallbacks(void *arg);
+
 void ActiveConnectionStateChangedCB(NMActiveConnection *p_active_connection, guint state, guint reason, gpointer user_data);
 
 /*****************************************************************************
@@ -133,40 +143,9 @@ char InitWiFi(void)
 	//first check if the service is running
 	if(CheckWiFiServiceStarted() == 0)
 	{
-		p_client = nm_client_new(NULL, &p_error);
-		if (p_client == NULL)
-		{
-			g_message("Error: Could not connect to NetworkManager: %s.", p_error->message);
-			g_error_free(p_error);
-			p_error = NULL;
-			return -1;
-		}
-		else
-		{
-			p_dev = nm_client_get_device_by_iface(p_client, "wlan0");
-
-			if(p_dev != NULL)
-			{
-				p_wifi = NM_DEVICE_WIFI(p_dev);
-
-				if(p_wifi != NULL)
-				{
-					g_object_ref(p_wifi);
-					g_object_ref(p_dev);
-					g_object_ref(p_client);
-					pthread_create( &WiFiSignalThread, NULL, WiFiSignalCallbacks, NULL );
-					return_val = 1;
-				}
-				else
-				{
-					printf("WiFi Device not found for wlan0 device\n");
-				}
-			}
-			else
-			{
-				printf("device not found for wlan0\n");
-			}
-		}
+		//printf("Creating wifi thread\n");
+		pthread_create( &WiFiProcessingThread, NULL, WiFiProcessing, NULL );
+		return_val = 1;
 	}
 	else
 	{
@@ -181,22 +160,129 @@ char InitWiFi(void)
  */
 void CloseWiFi(void)
 {
-	DisconnectFromWiFi();
-
-	if(p_active_connection_loop)
+	if(WiFiProcessingThread)
 	{
-		g_main_loop_quit(p_active_connection_loop);
+		WiFiKeepGoing = 0;
+		pthread_join(WiFiProcessingThread, NULL);
+	}
+}
 
-		if(WiFiSignalThread)
+/*****************************************************************************
+ * this is for the active connection signal, but we can't add the signal until we get an active connection
+ */
+void *WiFiProcessing(void *arg)
+{
+	p_client = nm_client_new(NULL, &p_error);
+	if (p_client == NULL)
+	{
+		g_message("Error: Could not connect to NetworkManager: %s.", p_error->message);
+		g_error_free(p_error);
+		p_error = NULL;
+	}
+	else
+	{
+		p_dev = nm_client_get_device_by_iface(p_client, "wlan0");
+
+		if(p_dev != NULL)
 		{
-			pthread_join(WiFiSignalThread, NULL);
+			p_wifi = NM_DEVICE_WIFI(p_dev);
+
+			if(p_wifi != NULL)
+			{
+				g_object_ref(p_wifi);
+				g_object_ref(p_dev);
+				g_object_ref(p_client);
+
+				p_wifi_processing_loop = g_main_loop_new(NULL, FALSE);
+				WiFiKeepGoing = 1;
+
+				//printf("allowing run of wifi thread\n");
+			}
+			else
+			{
+				printf("WiFi Device not found for wlan0 device\n");
+			}
 		}
-
-		if(p_active_connection_loop)
+		else
 		{
-			g_main_loop_unref(p_active_connection_loop);
+			printf("device not found for wlan0\n");
 		}
 	}
+
+	while(WiFiKeepGoing)
+	{
+		//printf("wifi thread loop is running\n");
+		if(p_wifi_processing_loop != NULL)
+		{
+			//printf("Before iteration\n");
+			g_main_context_iteration (NULL, FALSE);
+			//printf("After iteration\n");
+
+			switch(WiFiState)
+			{
+				case WIFI_IDLE:
+					//
+				break;
+
+				case WIFI_SCAN:
+					//
+					//printf("Starting Scan...\n");
+					DoWiFiScan();
+					WiFiState = WIFI_IDLE;
+				break;
+
+				case WIFI_STATUS:
+					//
+					//printf("Getting Status...\n");
+					GetWiFiStatus();
+					WiFiState = WIFI_IDLE;
+				break;
+
+				case WIFI_JOIN:
+					//
+					if((ConnectIndex >= 0) && (ConnectIndex <= MaxNetworks))
+					{
+						//printf("Starting Join...\n");
+						ConnectToWiFiNetwork(ConnectIndex);
+
+						ConnectIndex = INVALID_INDEX;
+					}
+					WiFiState = WIFI_IDLE;
+				break;
+
+				case WIFI_LEAVE:
+					//
+					//printf("Starting Leave...\n");
+					DisconnectFromWiFi();
+					WiFiState = WIFI_DELETE;
+				break;
+
+				case WIFI_DELETE:
+					//
+					if(!disconnect_in_progress)
+					{
+						//printf("Starting Delete...\n");
+						DeleteWiFiConnection();
+						WiFiState = WIFI_IDLE;
+					}
+				break;
+
+				default:
+					WiFiState = WIFI_IDLE;
+				break;
+			}
+		}
+
+		usleep(10*1000);
+
+	}
+
+	DisconnectFromWiFi();
+
+	g_main_loop_quit(p_wifi_processing_loop);
+	g_main_loop_unref(p_wifi_processing_loop);
+	p_wifi_processing_loop = NULL;
+
 	if(p_connection)
 	{
 		g_object_unref(p_connection);
@@ -226,34 +312,121 @@ void CloseWiFi(void)
 	{
 		g_object_unref(p_client);
 	}
-}
 
-/*****************************************************************************
- * this is for the active connection signal, but we can't add the signal until we get an active connection
- */
-void *WiFiSignalCallbacks(void *arg)
-{
-	GMainContext *p_SignalsContext = g_main_context_new (); //new thread means new context or else nothing else will run or we will get g errors
 
-	if((p_client != NULL) && (p_SignalsContext != NULL))
-	{
-		//printf("Starting Signal Callbacks\n");
-		p_active_connection_loop = g_main_loop_new(p_SignalsContext, FALSE);
-
-		g_main_loop_run(p_active_connection_loop);
-
-		g_main_loop_unref(p_active_connection_loop);
-		p_active_connection_loop = NULL;
-
-		//printf("Ending Signal Callbacks\n");
-	}
-	else
-	{
-		printf("Cannot start signals\n");
-	}
 
 	return 0;
 }
+
+/*******************************************************************************************************************************
+ * static BOOL CheckWiFiServiceStarted(void)
+ *
+ *  checks if wpa_supplicant is up and running by running
+ *
+ * Parameters:
+ *      - none
+ *
+ * Returns:
+ *      - 0 is initialized, 0 < otherwise
+ *
+ * Notes:
+ *
+ *******************************************************************************************************************************/
+static char CheckWiFiServiceStarted(void)
+{
+    FILE *fp;
+    char command[100];
+    char buf[100];
+    char retVal = 2;
+
+    memset(command, 0, sizeof(command));
+    snprintf(command, sizeof(command), "systemctl status wpa_supplicant | grep 'active (running)'");
+
+    while(retVal > 0)
+    {
+		// run the command and save the output to a file
+		if ((fp = popen(command, "r")) == 0)
+		{
+			printf("Error opening pipe1!\n");
+		}
+		else
+		{
+			// go through file line by line to parse scan command output
+			while (fgets(buf, sizeof(buf), fp) != 0)
+			{
+				if (strstr(buf, "active (running) since"))
+				{
+					// Platform Manager is up and running
+					//printf("systemd wpa_supplcant service running\n");
+					memset(command, 0, sizeof(command));
+					snprintf(command, sizeof(command), "systemctl status NetworkManager | grep 'active (running)'");
+					if ((fp = popen(command, "r")) == 0)
+					{
+						printf("Error opening pipe2!\n");
+					}
+					else
+					{
+						while (fgets(buf, sizeof(buf), fp) != 0)
+						{
+							if (strstr(buf, "active (running) since"))
+							{
+								retVal = 0;
+								break;
+							}
+							else
+							{
+								printf("NetworkManager is not running!\n");
+							}
+						}
+					}
+
+					break;
+				}
+				else if(retVal == 2)
+				{
+					printf("wpa_supplicant is not running\n");
+					retVal--;
+
+					//system(WLAN0_IFCONFIG_UP);
+					//system(WPA_SUPPLICANT_INIT_COMMAND);
+				}
+				else
+				{
+					retVal = -1;
+				}
+			}
+
+			if (pclose(fp) == -1)
+			{
+				printf("Error closing pipe!\n");
+			}
+		}
+    }
+
+    return retVal;
+}
+
+
+/*****************************************************************************
+ *
+ */
+int ChangeWiFiState(WiFiStates_t newState, int index)
+{
+	int retVal = 0;
+
+	if(WiFiState == WIFI_IDLE)
+	{
+		WiFiState = newState;
+
+		if(index != INVALID_INDEX)
+		{
+			ConnectIndex = index;
+		}
+	}
+
+	return retVal;
+}
+
 
 
 /*****************************************************************************
@@ -262,50 +435,17 @@ void *WiFiSignalCallbacks(void *arg)
  */
 void DoWiFiScan(void)
 {
-	char do_it_again = 0;
-
-	//printf("Doing WiFi Scan\n");
-
 	memset((void *)&g_wifi_scan_list, 0, sizeof(g_wifi_scan_list));
 
 	//current_time_in_ms = nm_utils_get_timestamp_msec();
 	previous_scan_time_in_ms = nm_device_wifi_get_last_scan (p_wifi);
 
-	//printf("Pre-scan last scan: %ld\n", previous_scan_time_in_ms);
-
-	do
+	//get current time stamp
+	if(previous_scan_time_in_ms > 0)
 	{
-		//get current time stamp
-		if(previous_scan_time_in_ms > 0)
-		{
-			gint64 this_scan = 0;
-			GMainLoop *p_scan_loop;
-
-			//printf("starting scan async\n");
-			p_scan_loop = g_main_loop_new(NULL, FALSE);
-			//request scan  - returns immediately, immediately calls callback
-			nm_device_wifi_request_scan_async (p_wifi, NULL, &WiFiScanCB, p_scan_loop);
-
-			g_main_loop_run(p_scan_loop);
-
-			g_main_loop_unref(p_scan_loop);
-
-			this_scan = nm_device_wifi_get_last_scan (p_wifi);
-
-			if(this_scan == previous_scan_time_in_ms)
-			{
-				//we need to do this again
-				do_it_again = 1;
-				printf("scan failed after many attempts, trying again\n");
-			}
-			else
-			{
-				do_it_again = 0;
-			}
-		}
-	}while(do_it_again);
-
-	printf("Done Scanning\n");
+		//request scan  - returns immediately, immediately calls callback
+		nm_device_wifi_request_scan_async (p_wifi, NULL, &WiFiScanCB, NULL);
+	}
 }
 
 
@@ -318,8 +458,6 @@ void WiFiScanCB(GObject *p_source_object, GAsyncResult *p_result, gpointer user_
 	gint64 this_scan_in_ms = 0;
 	int timeout = 0;
 	NMDeviceWifi *p_ThisWifi  = NM_DEVICE_WIFI(p_source_object);
-	GMainLoop *p_mainLoop = (GMainLoop *)(user_data);
-	int try_again = 0;
 
 	if(p_wifi == p_ThisWifi)
 	{
@@ -465,15 +603,8 @@ void WiFiScanCB(GObject *p_source_object, GAsyncResult *p_result, gpointer user_
 				else
 				{
 					printf("Not a new scan, sleeping\n");
-					sleep(4);
+					sleep(2);
 					nm_device_wifi_request_scan_async(p_ThisWifi, NULL, WiFiScanCB, user_data);
-
-					try_again++;
-
-					if(try_again >= 10)
-					{
-						g_main_loop_quit(p_mainLoop);
-					}
 					return;
 				}
 			}
@@ -496,101 +627,13 @@ void WiFiScanCB(GObject *p_source_object, GAsyncResult *p_result, gpointer user_
 		printf("wifi or user data do not match\n");
 	}
 
-	printf("Callback done\n");
-
-	g_main_loop_quit(p_mainLoop);
+	printf("Scan Complete\n");
 
 }
 
 
 
-/*******************************************************************************************************************************
- * static BOOL CheckWiFiServiceStarted(void)
- *
- *  checks if wpa_supplicant is up and running by running
- *
- * Parameters:
- *      - none
- *
- * Returns:
- *      - 0 is initialized, 0 < otherwise
- *
- * Notes:
- *
- *******************************************************************************************************************************/
-static char CheckWiFiServiceStarted(void)
-{
-    FILE *fp;
-    char command[100];
-    char buf[100];
-    char retVal = 2;
 
-    memset(command, 0, sizeof(command));
-    snprintf(command, sizeof(command), "systemctl status wpa_supplicant | grep 'active (running)'");
-
-    while(retVal > 0)
-    {
-		// run the command and save the output to a file
-		if ((fp = popen(command, "r")) == 0)
-		{
-			printf("Error opening pipe1!\n");
-		}
-		else
-		{
-			// go through file line by line to parse scan command output
-			while (fgets(buf, sizeof(buf), fp) != 0)
-			{
-				if (strstr(buf, "active (running) since"))
-				{
-					// Platform Manager is up and running
-					//printf("systemd wpa_supplcant service running\n");
-					memset(command, 0, sizeof(command));
-					snprintf(command, sizeof(command), "systemctl status NetworkManager | grep 'active (running)'");
-					if ((fp = popen(command, "r")) == 0)
-					{
-						printf("Error opening pipe2!\n");
-					}
-					else
-					{
-						while (fgets(buf, sizeof(buf), fp) != 0)
-						{
-							if (strstr(buf, "active (running) since"))
-							{
-								retVal = 0;
-								break;
-							}
-							else
-							{
-								printf("NetworkManager is not running!\n");
-							}
-						}
-					}
-
-					break;
-				}
-				else if(retVal == 2)
-				{
-					printf("wpa_supplicant is not running\n");
-					retVal--;
-
-					//system(WLAN0_IFCONFIG_UP);
-					//system(WPA_SUPPLICANT_INIT_COMMAND);
-				}
-				else
-				{
-					retVal = -1;
-				}
-			}
-
-			if (pclose(fp) == -1)
-			{
-				printf("Error closing pipe!\n");
-			}
-		}
-    }
-
-    return retVal;
-}
 
 /********************************************************************************************************************
  *
@@ -653,7 +696,6 @@ void ConnectToWiFiNetwork(int index)
 
 	if(index < MaxNetworks)
 	{
-		GMainLoop *p_connect_loop = NULL;
 		// Create a new connection profile
 		p_connection = nm_simple_connection_new();
 
@@ -730,14 +772,7 @@ void ConnectToWiFiNetwork(int index)
 		// to prevent premature destruction during asynchronous operation
 		g_object_ref(p_connection);
 
-		p_connect_loop = g_main_loop_new(NULL, FALSE);
-
-
-		nm_client_add_and_activate_connection_async(p_client, p_connection, p_dev, NULL, NULL, NewConnectionCB, p_connect_loop);
-
-		// Start the main loop to process asynchronous operations
-		g_main_loop_run(p_connect_loop);
-		g_main_loop_unref(p_connect_loop);
+		nm_client_add_and_activate_connection_async(p_client, p_connection, p_dev, NULL, NULL, NewConnectionCB, NULL);
 	}
 	else
 	{
@@ -750,7 +785,6 @@ void ConnectToWiFiNetwork(int index)
  ********************************************************************************************************************/
 void NewConnectionCB(GObject *object, GAsyncResult *res, gpointer user_data)
 {
-	GMainLoop *p_mainLoop = (GMainLoop *)(user_data);
 	//int timeout = 0;
 
 	Connected = FALSE;
@@ -773,10 +807,8 @@ void NewConnectionCB(GObject *object, GAsyncResult *res, gpointer user_data)
 	else
 	{
 		printf("Connection added and activated successfully! -->This doesn't mean we are connected.\n");
-		g_signal_connect(p_ActiveConnection, "state-changed", G_CALLBACK(ActiveConnectionStateChangedCB), p_active_connection_loop);
+		g_signal_connect(p_ActiveConnection, "state-changed", G_CALLBACK(ActiveConnectionStateChangedCB), NULL);
 	}
-
-	g_main_loop_quit(p_mainLoop);
 }
 
 /********************************************************************************************************************
@@ -813,8 +845,6 @@ void GetWiFiStatus(void)
 	}
 	else
 	{
-		//printf("Active wifi connection found\n");
-
 		NMActiveConnectionState active_connection_state = nm_active_connection_get_state (p_ActiveConnection);
 		NMActiveConnectionStateReason active_connection_reason = nm_active_connection_get_state_reason (p_ActiveConnection);
 
@@ -843,7 +873,7 @@ void DecodeAndPrintActiveConnectionStateAndReason(NMActiveConnectionState state,
 		case NM_ACTIVE_CONNECTION_STATE_ACTIVATED:
 			printf("Active Connection State: Activated");
 			Connected = TRUE;
-			GetWiFiStatus();
+			//GetWiFiStatus();
 		break;
 
 		case NM_ACTIVE_CONNECTION_STATE_DEACTIVATING:
@@ -852,7 +882,8 @@ void DecodeAndPrintActiveConnectionStateAndReason(NMActiveConnectionState state,
 
 		case NM_ACTIVE_CONNECTION_STATE_DEACTIVATED:
 			printf("Active Connection State: Deactivated");
-			g_signal_handlers_disconnect_by_func (p_ActiveConnection, ActiveConnectionStateChangedCB, p_active_connection_loop);
+			g_signal_handlers_disconnect_by_func (p_ActiveConnection, ActiveConnectionStateChangedCB, NULL);
+			p_ActiveConnection = NULL; //unref doesn't NULL the pointers
 			Connected = FALSE;
 		break;
 
@@ -956,37 +987,14 @@ void DisconnectFromWiFi(void)
 		NMActiveConnectionState current_state = nm_active_connection_get_state (p_ActiveConnection);
 		if((current_state == NM_ACTIVE_CONNECTION_STATE_ACTIVATED) || (current_state == NM_ACTIVE_CONNECTION_STATE_ACTIVATING))
 		{
-			GMainLoop *p_disconnect_loop = g_main_loop_new(NULL, FALSE);
-
 			//get some kind of handle on how to get the store wifi connection so we can delete it
 			p_remote_connection = nm_client_get_connection_by_uuid (p_client, nm_active_connection_get_uuid (p_ActiveConnection));
 
 			//g_signal_handlers_disconnect_by_func (p_ActiveConnection, ActiveConnectionStateChangedCB, p_active_connection_loop); this has to happen before we d/c
 
 			//shut down current wifi connection
-			nm_client_deactivate_connection_async(p_client, p_ActiveConnection, NULL, ActiveConnectionDisconnectCB, p_disconnect_loop);
-
-			g_main_loop_run(p_disconnect_loop);
-
-			//wait for it to return and delete the stored/remote connection
-			g_object_unref(p_ActiveConnection);
-
-			//delete saved/remote connection if it exists
-			if(p_remote_connection != NULL)
-			{
-				nm_remote_connection_delete_async (p_remote_connection, NULL, RemoteConnectionDeleteCB, p_disconnect_loop);
-
-				g_main_loop_run(p_disconnect_loop);
-			}
-
-			//end that loop
-			g_main_loop_unref(p_disconnect_loop);
-
-			//invalidate the pointers
-			//g_object_unref(p_remote_connection); i get an error when i do this, apparently this gets unref'd on delete, or we don't need to unref this
-
-			p_ActiveConnection = NULL; //unref doesn't NULL the pointers
-			p_remote_connection = NULL;
+			disconnect_in_progress = 1;
+			nm_client_deactivate_connection_async(p_client, p_ActiveConnection, NULL, ActiveConnectionDisconnectCB, NULL);
 		}
 		else
 		{
@@ -1016,10 +1024,21 @@ void ActiveConnectionDisconnectCB(GObject *source_object, GAsyncResult *res, gpo
     {
         g_print("WiFi connection disconnected successfully\n");
     }
-    GMainLoop *loop = (GMainLoop *)user_data;
-    g_main_loop_quit(loop);
+
+    disconnect_in_progress = 0;
 }
 
+/********************************************************************************************************************
+ *
+ ********************************************************************************************************************/
+void DeleteWiFiConnection(void)
+{
+	//delete saved/remote connection if it exists
+	if(p_remote_connection != NULL)
+	{
+		nm_remote_connection_delete_async (p_remote_connection, NULL, RemoteConnectionDeleteCB, NULL);
+	}
+}
 
 /********************************************************************************************************************
  *
@@ -1037,10 +1056,8 @@ void RemoteConnectionDeleteCB(GObject *source_object, GAsyncResult *res, gpointe
 	else
 	{
 		g_print("WiFi remote connection deleted successfully\n");
+		p_remote_connection = NULL;
 	}
-
-	GMainLoop *loop = (GMainLoop *)user_data;
-	g_main_loop_quit(loop);
 }
 
 

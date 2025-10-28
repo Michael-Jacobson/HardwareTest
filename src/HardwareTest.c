@@ -23,6 +23,7 @@
 #include "Codec.h"
 #include "i2c_test.h"
 #include "CodecAIC3106.h"
+#include "WiFi_test.h"
 
 #define CLOCKID CLOCK_REALTIME
 #define SIG SIGRTMIN
@@ -74,13 +75,8 @@ char SetBacklightValue(int percent);
 int SetRealTime(void);
 void initTouch(void);
 void CloseTouch(void);
-char InitWiFi(void);
-void DoWiFiScan(void);
-void CloseWiFi(void);
-void ConnectToWiFiNetwork(int index);
-void SetPasswordForWiFiNetwork(int index, char *p_password);
-void GetWiFiStatus(void);
-void DisconnectFromWiFi(void);
+
+
 
 int main(void)
 {
@@ -120,10 +116,10 @@ int main(void)
 
 	Test_DigitPOT();
 
-	printf("Init WiFi\n");
+	printf("Init WiFi: ");
 	if(InitWiFi())
 	{
-		//printf("pass\n");
+		printf("WiFi pass\n");
 	}
 	else
 	{
@@ -239,7 +235,7 @@ int main(void)
 				else if(strstr(RxString, "wifi scan") != 0)
 				{
 					printf("**WiFi Scan Started\n");
-					DoWiFiScan();
+					ChangeWiFiState(WIFI_SCAN, INVALID_INDEX);
 				}
 				else if(strstr(RxString, "wifi pw ") != 0)
 				{
@@ -287,19 +283,19 @@ int main(void)
 							p_index_loc++;
 							int index = atoi(p_index_loc);
 							printf("**WiFi joining network: %d\n", index);
-							ConnectToWiFiNetwork(index);
+							ChangeWiFiState(WIFI_JOIN, index);
 						}
 					}
 				}
 				else if(strstr(RxString, "wifi status") != 0)
 				{
 					printf("**Getting WiFi Status\n");
-					GetWiFiStatus();
+					ChangeWiFiState(WIFI_STATUS, INVALID_INDEX);
 				}
 				else if(strstr(RxString, "wifi leave") != 0)
 				{
 					printf("**Leaving WiFi Network\n");
-					DisconnectFromWiFi();
+					ChangeWiFiState(WIFI_LEAVE, INVALID_INDEX);
 				}
 				else if(strstr(RxString, "quit") != 0)
 				{
